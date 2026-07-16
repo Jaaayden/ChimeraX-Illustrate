@@ -745,26 +745,23 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
     subunit_array = np.asarray(subunit_codes if subunit_codes else [0], dtype=np.int32)
     residue_array = np.asarray(residue_numbers if residue_numbers else [9999], dtype=np.int32)
 
+    # Use the same integer sphere table and ``int(center + offset)`` mapping
+    # as Illustrate's original Fortran rasterizer.  A continuous disk mask
+    # looks superficially similar, but changes the depth buffer by a pixel at
+    # many atom edges; the downstream contour kernels then produce a visibly
+    # different illustration even when every style parameter is identical.
     for atom_index, (px, py, pz, radius) in enumerate(projected):
         if pz >= 0.0 or radius <= 0.0:
             continue
-        x0 = max(0, int(math.floor(px - radius)) - 1)
-        x1 = min(width, int(math.ceil(px + radius)) + 2)
-        y0 = max(0, int(math.floor(py - radius)) - 1)
-        y1 = min(height, int(math.ceil(py + radius)) + 2)
-        if x1 <= x0 or y1 <= y0:
-            continue
-        yy, xx = np.ogrid[y0:y1, x0:x1]
-        dx = xx.astype(np.float32) - px
-        dy = yy.astype(np.float32) - py
-        distance_squared = dx * dx + dy * dy
-        mask = distance_squared <= radius * radius
-        surface = np.sqrt(np.maximum(0.0, radius * radius - distance_squared)) + pz
-        region_depth = depth[y0:y1, x0:x1]
-        region_map = atom_map[y0:y1, x0:x1]
-        update = mask & (surface > region_depth)
-        region_depth[update] = surface[update]
-        region_map[update] = atom_index
+        for offset_x, offset_y, surface_z in _sphere_points(radius):
+            x = int(px + offset_x)
+            y = int(py + offset_y)
+            if x < 0 or x >= width or y < 0 or y >= height:
+                continue
+            z = surface_z + pz
+            if z > depth[y, x]:
+                depth[y, x] = z
+                atom_map[y, x] = atom_index
 
     visible = atom_map >= 0
     visible_depths = depth[visible]
