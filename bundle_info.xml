@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BundleInfo name="ChimeraX-Illustrate" version="0.1.13" package="illustrate"
+    purePython="true" minSessionVersion="1" maxSessionVersion="1">
+  <Author>Illustrate contributors</Author>
+  <Email>See the project repository for support information.</Email>
+  <URL>https://github.com/ccsb-scripps/Illustrate</URL>
+  <Synopsis>Non-photorealistic biomolecular illustration from the current ChimeraX atomic scene.</Synopsis>
+  <Description>
+    Captures visible atomic models and the current ChimeraX camera, then renders
+    an Illustrate-style image with depth buffering, contours, group boundaries,
+    fog, shadows, and a transparent PNG export path.
+  </Description>
+  <Categories>
+    <Category name="Graphics" />
+  </Categories>
+  <Dependencies>
+    <Dependency name="ChimeraX-Core" version="~=1.10" />
+    <Dependency name="ChimeraX-UI" version="~=1.10" />
+    <Dependency name="numpy" />
+  </Dependencies>
+  <DataFiles>
+    <DataFile>docs/user/commands/illustrate.html</DataFile>
+    <DataFile>docs/user/tools/illustrate.html</DataFile>
+  </DataFiles>
+  <Classifiers>
+    <PythonClassifier>Development Status :: 3 - Alpha</PythonClassifier>
+    <PythonClassifier>License :: OSI Approved :: Apache Software License</PythonClassifier>
+    <ChimeraXClassifier>ChimeraX :: Tool :: Illustrate :: Graphics :: Create Illustrate-style molecular images</ChimeraXClassifier>
+    <ChimeraXClassifier>ChimeraX :: Command :: illustrate :: Graphics :: Capture and export Illustrate-style molecular images</ChimeraXClassifier>
+  </Classifiers>
+</BundleInfo>

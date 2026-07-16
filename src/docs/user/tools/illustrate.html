@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Illustrate</title></head>
+<body>
+<h1>Illustrate</h1>
+<p>
+The Illustrate tool captures visible atomic models and the current camera view,
+then renders a non-photorealistic molecular illustration. Capture a new scene
+after changing the ChimeraX camera. Parameter changes after capture update the
+preview after a short debounce.
+</p>
+<p>
+The default contour level is 1, matching the known-good 0.1.6 renderer;
+levels 2–4 remain available for broader, smoother outlines. The output-size controls are arranged in one
+row, and <b>恢复默认参数</b> restores preview size, export size, style values,
+shadow, transparency, and contour level without clearing the captured scene.
+</p>
+<p>
+The preview is capped at 320 pixels high and the style controls are in a
+bounded scroll area, so opening the tool does not force the ChimeraX window
+off-screen. The <b>参数说明</b> button and control tooltips describe each
+parameter, practical ranges, and how larger or smaller values affect the image.
+Export width and height accept 2–8000 pixels. The original Fortran program
+used a fixed 3000-pixel frame buffer; this bundle uses dynamic NumPy buffers
+and scales the pixel-based contour, boundary, and shadow neighborhoods from a
+1200-pixel reference so changing the export size does not substantially change
+the visual style. Exports above 4096 pixels are processed in row tiles to avoid
+constructing several full-frame temporary arrays at once; larger images still
+require more time and memory.
+</p>
+<p>
+The first version supports atomic spheres. The output uses an orthographic
+projection to match the original Illustrate renderer; perspective cameras are
+accepted but may show a scale difference.
+</p>
+</body>
+</html>
