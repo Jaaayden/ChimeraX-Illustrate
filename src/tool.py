@@ -73,7 +73,7 @@ PARAMETER_HELP_HTML = """
 <ul>
 <li><b>轮廓低阈值</b>：轮廓开始出现的敏感度。常用 1–10；越小越容易出现轮廓。</li>
 <li><b>轮廓高阈值</b>：轮廓达到最强的阈值。常用 5–20；越大通常轮廓越少、越淡。低、高阈值距离越窄，轮廓对比越强，也可能更锯齿。</li>
-<li><b>轮廓等级</b>：范围 1–4。1/2 使用像素深度导数，3/4 使用归一化邻域深度差；等级越高越平滑。插件会自动校准 3/4 的响应范围，避免只剩外围轮廓。</li>
+<li><b>轮廓等级</b>：范围 1–4。1/2 使用像素深度导数，3/4 使用归一化邻域深度差；等级越高越平滑。默认 4，与 Illustrate 参考输入一致。插件会自动校准 3/4 的响应范围，避免只剩外围轮廓。</li>
 <li><b>轮廓深度最小差</b>：参与计算的最小深度差。0 会保留更多细节；常用 0–1。</li>
 <li><b>轮廓深度最大差</b>：深度差上限。0–5 常用于原子级轮廓；0–1000 更接近只描绘整体分子外轮廓。</li>
 <li><b>亚基低/高阈值</b>：亚基边界从出现到变黑的范围。常用 3–20；降低低阈值会增加边界。</li>
@@ -178,7 +178,7 @@ class IllustrateTool(ToolInstance):
         self._add_float(style_form, "contour_low", "轮廓低阈值", DEFAULT_STYLE.contour_low, 0.0, 1000.0, 2)
         self._add_float(style_form, "contour_high", "轮廓高阈值", DEFAULT_STYLE.contour_high, 0.0, 1000.0, 2)
         self.contour_kernel = self._add_int(style_form, "轮廓等级", DEFAULT_STYLE.contour_kernel, 1, 4)
-        self.contour_kernel.setToolTip("轮廓等级，范围 1–4；1/2 较锐，3 较平滑但保留原子级边界，4 最平滑、偏向整体轮廓。插件会自动校准不同等级的响应范围。")
+        self.contour_kernel.setToolTip("轮廓等级，范围 1–4；1/2 较锐，3 较平滑但保留原子级边界，4 最平滑、偏向整体轮廓。默认 4，与 Illustrate 参考输入一致。插件会自动校准不同等级的响应范围。")
         self._add_float(style_form, "contour_depth_min", "轮廓深度最小差", DEFAULT_STYLE.contour_depth_min, 0.0, 1000.0, 2)
         self._add_float(style_form, "contour_depth_max", "轮廓深度最大差", DEFAULT_STYLE.contour_depth_max, 0.001, 1000.0, 2)
         self._add_float(style_form, "subunit_low", "亚基低阈值", DEFAULT_STYLE.subunit_low, 0.0, 1000.0, 2)

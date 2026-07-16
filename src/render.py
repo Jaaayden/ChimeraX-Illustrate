@@ -74,17 +74,22 @@ class IllustrationStyle:
     shadow_contribution: float = 0.0023
     shadow_cone_angle: float = 2.0
     shadow_depth: float = 1.0
-    shadow_maximum: float = 0.2
+    # Match the reference Illustrate input: shadows are allowed to darken
+    # pixels down to 70% brightness, rather than the much darker 20% floor.
+    shadow_maximum: float = 0.7
     contour_low: float = 3.0
     contour_high: float = 10.0
-    contour_kernel: int = 1
+    # The reference front illustration uses the broadest, smoothest kernel.
+    contour_kernel: int = 4
     contour_depth_min: float = 0.0
     contour_depth_max: float = 5.0
     subunit_low: float = 3.0
     subunit_high: float = 10.0
     residue_low: float = 3.0
     residue_high: float = 8.0
-    residue_difference: float = 6000.0
+    # Small residue-number changes are part of the reference illustration's
+    # internal boundaries; 6000 would suppress them almost completely.
+    residue_difference: float = 6.0
     radius_scale: float = 1.0
     # Internal pixel-neighborhood scale used when an export is larger than
     # the canonical 1200 px reference render.  It is not a user parameter.

@@ -113,25 +113,26 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(set(image.rgba[3::4]), {0})
 
     def test_default_contour_kernel_matches_reference_input(self):
-        self.assertEqual(IllustrationStyle().contour_kernel, 1)
+        self.assertEqual(IllustrationStyle().contour_kernel, 4)
 
     def test_default_outline_parameters_match_reference_input(self):
         style = IllustrationStyle()
         self.assertEqual(
             (style.contour_low, style.contour_high, style.contour_kernel,
              style.contour_depth_min, style.contour_depth_max),
-            (3.0, 10.0, 1, 0.0, 5.0),
+            (3.0, 10.0, 4, 0.0, 5.0),
         )
 
     def test_default_shading_and_residue_parameters_match_reference_input(self):
         style = IllustrationStyle()
-        self.assertEqual(style.shadow_maximum, 0.2)
-        self.assertEqual(style.residue_difference, 6000.0)
+        self.assertEqual(style.shadow_maximum, 0.7)
+        self.assertEqual(style.residue_difference, 6.0)
 
     def test_output_size_scales_pixel_based_thresholds(self):
         style = IllustrationStyle(
             contour_low=3.0,
             contour_high=10.0,
+            contour_kernel=1,
             contour_depth_min=0.5,
             contour_depth_max=5.0,
             shadow_depth=1.0,
