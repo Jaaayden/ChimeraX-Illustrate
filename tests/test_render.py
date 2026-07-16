@@ -14,6 +14,7 @@ from render import (
     IllustrationStyle,
     RenderScene,
     ViewSnapshot,
+    _contour_thresholds,
     encode_png,
     render,
     scale_style_for_output,
@@ -145,6 +146,28 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(scaled.raster_scale, 1.0)
         self.assertEqual(scale_style_for_output(style, 4000, 320).raster_scale,
                          4000.0 / 1200.0)
+
+    def test_count_based_contour_kernels_keep_dimensionless_thresholds(self):
+        kernel_three = replace(self.style, contour_kernel=3)
+        kernel_four = replace(self.style, contour_kernel=4)
+        scaled_three = scale_style_for_output(kernel_three, 4000, 320)
+        scaled_four = scale_style_for_output(kernel_four, 4000, 320)
+        self.assertEqual((scaled_three.contour_low, scaled_three.contour_high), (3.0, 10.0))
+        self.assertEqual((scaled_four.contour_low, scaled_four.contour_high), (3.0, 10.0))
+        self.assertEqual(_contour_thresholds(kernel_three), (1.5, 5.0))
+        self.assertEqual(_contour_thresholds(kernel_four), (6.0, 20.0))
+
+    def test_all_contour_kernels_keep_the_scene_visible(self):
+        for kernel in (1, 2, 3, 4):
+            style = replace(self.style, contour_kernel=kernel)
+            image = render(
+                self.scene,
+                self.view,
+                scale_style_for_output(style, 96, 64),
+                96,
+                96,
+            )
+            self.assertIn(255, image.rgba[3::4], "kernel %d" % kernel)
 
     def test_rotated_scene_remains_visible_when_depth_is_below_legacy_sentinel(self):
         view = ViewSnapshot(

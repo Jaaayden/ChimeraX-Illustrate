@@ -102,10 +102,14 @@ def scale_style_for_output(style: IllustrationStyle, output_width: int,
     """
 
     scale = float(output_width) / float(max(1, capture_width))
+    # Kernels 1/2 return a depth-derivative in pixel units.  Kernels 3/4
+    # return a count-like sum of normalized neighbor differences, so their
+    # contour low/high controls must remain dimensionless across output sizes.
+    threshold_scale = scale if style.contour_kernel in (1, 2) else 1.0
     return replace(
         style,
-        contour_low=style.contour_low * scale,
-        contour_high=style.contour_high * scale,
+        contour_low=style.contour_low * threshold_scale,
+        contour_high=style.contour_high * threshold_scale,
         contour_depth_min=style.contour_depth_min * scale,
         contour_depth_max=style.contour_depth_max * scale,
         shadow_depth=style.shadow_depth * scale,
@@ -199,6 +203,20 @@ def _safe_ramp(value: float, low: float, high: float) -> float:
     return _clamp((value - low) / (high - low))
 
 
+def _contour_thresholds(style: IllustrationStyle) -> Tuple[float, float]:
+    """Return thresholds calibrated to the selected contour kernel.
+
+    Kernels 3 and 4 accumulate normalized depth differences rather than the
+    pixel-valued derivative returned by kernels 1 and 2.  Their raw response
+    ranges are therefore different even though the UI exposes one pair of
+    contour thresholds.  The factors preserve the same practical control
+    range while retaining the original kernel shapes.
+    """
+
+    response_scale = {3: 0.5, 4: 2.0}.get(style.contour_kernel, 1.0)
+    return style.contour_low * response_scale, style.contour_high * response_scale
+
+
 def _kernel_value(kind: int, depth: List[List[float]], x: int, y: int, cx: int, cy: int,
                   depth_min: float, depth_max: float, step: int = 1) -> float:
     if kind == 1:
@@ -270,6 +288,7 @@ def _outline_opacity(depth: List[List[float]], atom_map: List[List[int]], atoms:
 
     local_values: List[float] = []
     active_count = 0
+    contour_low, contour_high = _contour_thresholds(style)
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
             value = _kernel_value(
@@ -277,12 +296,16 @@ def _outline_opacity(depth: List[List[float]], atom_map: List[List[int]], atoms:
                 style.contour_depth_min, style.contour_depth_max,
                 step,
             )
-            local = _clamp(_safe_ramp(value, style.contour_low, style.contour_high))
+            local = _clamp(_safe_ramp(value, contour_low, contour_high))
             local_values.append(local)
             if local > 0.0:
                 active_count += 1
     if active_count >= 6:
-        contour_opacity = sum(local_values) / float(len(local_values))
+        # Match Illustrate's original normalization: the nine samples are
+        # averaged over the six-sample activation threshold, not over all
+        # nine positions.  This keeps kernels 3 and 4 from becoming
+        # artificially faint when several neighboring derivatives are active.
+        contour_opacity = sum(local_values) / 6.0
     else:
         contour_opacity = local_values[4]
     return max(group_opacity, _clamp(contour_opacity))
@@ -585,6 +608,7 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
 
         contour_opacity = np.zeros((tile_height, width), dtype=np.float32)
         if style.contour_kernel in (1, 2, 3, 4) and height > 2 * neighborhood_margin and width > 2 * neighborhood_margin:
+            contour_low, contour_high = _contour_thresholds(style)
             contour_sum = np.zeros((tile_height, width), dtype=np.float32)
             active = np.zeros((tile_height, width), dtype=np.int8)
             center_value = np.zeros((tile_height, width), dtype=np.float32)
@@ -616,8 +640,8 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
                         offsets = range(-1, 2) if style.contour_kernel == 3 else range(-2, 3)
                         center_depth = _numpy_shift_region(
                             depth, 0, width, y0, y1,
-                            local_x * neighborhood_step,
-                            local_y * neighborhood_step,
+                            0,
+                            0,
                             depth_floor
                         )
                         for dx in offsets:
@@ -627,8 +651,8 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
                                 difference = np.abs(
                                     center_depth - _numpy_shift_region(
                                     depth, 0, width, y0, y1,
-                                        (local_x + dx) * neighborhood_step,
-                                        (local_y + dy) * neighborhood_step,
+                                        dx * neighborhood_step,
+                                        dy * neighborhood_step,
                                         depth_floor
                                     )
                                 )
@@ -642,14 +666,14 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
                                     0.0,
                                 )
                     value = np.clip(
-                        (raw - style.contour_low) / max(style.contour_high - style.contour_low, 1e-9),
+                        (raw - contour_low) / max(contour_high - contour_low, 1e-9),
                         0.0, 1.0,
                     )
                     contour_sum += value
                     active += value > 0.0
                     if local_x == 0 and local_y == 0:
                         center_value = value
-            core = np.where(active >= 6, contour_sum / 9.0, center_value)
+            core = np.where(active >= 6, contour_sum / 6.0, center_value)
             inner_top = max(0, neighborhood_margin - y0)
             inner_bottom = min(tile_height, height - neighborhood_margin - y0)
             if inner_bottom > inner_top:
@@ -824,6 +848,7 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
 
     contour_opacity = np.zeros((height, width), dtype=np.float32)
     if style.contour_kernel in (1, 2, 3, 4) and height > 2 * neighborhood_margin and width > 2 * neighborhood_margin:
+        contour_low, contour_high = _contour_thresholds(style)
         values = []
         contour_pad = 4 * neighborhood_step
         padded_depth = np.pad(depth, contour_pad, mode="constant", constant_values=depth_floor)
@@ -873,10 +898,15 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
                             if style.contour_kernel == 4 and abs(dx * dy) == 4:
                                 continue
                             difference = np.abs(
-                                padded_depth[y_start:y_end, x_start:x_end]
+                                padded_depth[
+                                    contour_pad + contour_inner:contour_pad + height - contour_inner,
+                                    contour_pad + contour_inner:contour_pad + width - contour_inner,
+                                ]
                                 - padded_depth[
-                                    y_start + dy * neighborhood_step:y_end + dy * neighborhood_step,
-                                    x_start + dx * neighborhood_step:x_end + dx * neighborhood_step,
+                                    contour_pad + contour_inner + dy * neighborhood_step:
+                                    contour_pad + height - contour_inner + dy * neighborhood_step,
+                                    contour_pad + contour_inner + dx * neighborhood_step:
+                                    contour_pad + width - contour_inner + dx * neighborhood_step,
                                 ]
                             )
                             raw += np.where(
@@ -889,12 +919,12 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
                                 0.0,
                             )
                 values.append(np.clip(
-                    (raw - style.contour_low) / max(style.contour_high - style.contour_low, 1e-9),
+                    (raw - contour_low) / max(contour_high - contour_low, 1e-9),
                     0.0, 1.0,
                 ))
         stacked = np.stack(values, axis=0)
         active = np.sum(stacked > 0.0, axis=0)
-        core = np.where(active >= 6, np.mean(stacked, axis=0), stacked[4])
+        core = np.where(active >= 6, np.sum(stacked, axis=0) / 6.0, stacked[4])
         contour_opacity[contour_inner:height - contour_inner,
                         contour_inner:width - contour_inner] = np.clip(core, 0.0, 1.0)
 
