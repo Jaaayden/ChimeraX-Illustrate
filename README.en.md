@@ -57,6 +57,18 @@ Fortran and gfortran are not required. NumPy, Qt, and the ChimeraX APIs are supp
 
 Capture the scene again after changing the ChimeraX camera. Parameter changes affect the captured snapshot and do not modify the original ChimeraX model.
 
+## Quick chain coloring
+
+The repository also includes the standalone ChimeraX script [`chimerax-chain-palette.py`](chimerax-chain-palette.py). It assigns a consistent palette across the chains in the currently open atomic models. Common elements receive lightness variations of the chain color, and the script can also set a white background, soft lighting, silhouettes, and hidden hydrogens to prepare a scene for Illustrate-style rendering.
+
+After opening a structure in ChimeraX, run:
+
+```text
+runscript /absolute/path/to/chimerax-chain-palette.py
+```
+
+The script changes ChimeraX display colors and related display settings only. It does not change coordinates or overwrite input structure files. After the palette is applied, run `illustrate` and click **捕获当前场景** to capture those colors in the Illustrate renderer. The script does not require manual `.inp` editing and can be used independently of the Illustrate bundle.
+
 ## Commands
 
 ```text

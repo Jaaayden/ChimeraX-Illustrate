@@ -57,6 +57,18 @@ devel build /absolute/path/to/this/repository
 
 改变 ChimeraX 视角后，需要再次捕获场景。参数修改会作用于已捕获的快照，不会修改 ChimeraX 原始模型。
 
+## 快速分配链颜色
+
+仓库还提供了一个可独立运行的 ChimeraX 脚本 [`chimerax-chain-palette.py`](chimerax-chain-palette.py)，用于按链自动分配一组适合 Illustrate 风格的颜色。它会对当前打开的原子模型依次处理各条链，并对常见元素使用同一链颜色的明暗变化；同时可设置白色背景、柔和光照、轮廓线并隐藏氢原子。
+
+在 ChimeraX 中打开结构后运行：
+
+```text
+runscript /absolute/path/to/chimerax-chain-palette.py
+```
+
+脚本只修改 ChimeraX 的显示颜色和相关显示设置，不修改坐标，也不会覆盖输入结构文件。完成颜色分配后，可以运行 `illustrate` 并点击“捕获当前场景”，将当前颜色带入 Illustrate 渲染。该脚本不需要手动编辑 `.inp` 文件，也可以不安装 Illustrate bundle 单独使用。
+
 ## 命令
 
 ```text
