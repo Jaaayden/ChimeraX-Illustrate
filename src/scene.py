@@ -136,39 +136,153 @@ def _scene_models(session):
     try:
         from chimerax.atomic import AtomicStructure
     except ImportError:
-        AtomicStructure = ()
+        AtomicStructure = None
     models = getattr(session, "models", None)
     if models is None:
         return []
     listing = getattr(models, "list", None)
     if not callable(listing):
         return []
+    if AtomicStructure is None:
+        return [
+            model for model in listing()
+            if hasattr(model, "atoms") and not hasattr(model, "show_atoms")
+        ]
     try:
         return listing(type=AtomicStructure)
     except TypeError:
         return [model for model in listing() if isinstance(model, AtomicStructure)]
 
 
+def _surface_models(session):
+    try:
+        from chimerax.atomic import MolecularSurface
+    except ImportError:
+        MolecularSurface = None
+    models = getattr(session, "models", None)
+    if models is None:
+        return []
+    listing = getattr(models, "list", None)
+    if not callable(listing):
+        return []
+    if MolecularSurface is None:
+        return [
+            model for model in listing()
+            if hasattr(model, "show_atoms") and hasattr(model, "atoms")
+        ]
+    try:
+        return listing(type=MolecularSurface)
+    except TypeError:
+        return [model for model in listing() if isinstance(model, MolecularSurface)]
+
+
+def _model_is_visible(model) -> bool:
+    return bool(
+        getattr(model, "display", True)
+        and getattr(model, "parents_displayed", True)
+    )
+
+
+def _atom_key(atom):
+    pointer = getattr(atom, "cpp_pointer", None)
+    return pointer if pointer is not None else id(atom)
+
+
+def _surface_atom_colors(session):
+    colors = {}
+    for surface in _surface_models(session):
+        if not _model_is_visible(surface):
+            continue
+        shown_atoms = getattr(surface, "show_atoms", None)
+        if shown_atoms is None:
+            shown_atoms = getattr(surface, "atoms", ())
+        color = getattr(surface, "overall_color", None)
+        if color is None:
+            color = getattr(surface, "color", None)
+        color = _as_color(color)
+        for atom in shown_atoms:
+            colors.setdefault(_atom_key(atom), color)
+    return colors
+
+
+def _atom_is_displayed(atom) -> bool:
+    visible = getattr(atom, "visible", None)
+    if visible is not None:
+        return bool(visible)
+    return bool(getattr(atom, "display", True))
+
+
+def _cartoon_is_displayed(residue) -> bool:
+    if residue is None or not getattr(residue, "ribbon_display", False):
+        return False
+    polymer_type = getattr(residue, "polymer_type", None)
+    if polymer_type is None:
+        return True
+    return polymer_type != getattr(residue, "PT_NONE", 0)
+
+
+def _atom_is_hydrogen(atom) -> bool:
+    element = getattr(atom, "element", None)
+    number = getattr(element, "number", None)
+    try:
+        if number is not None:
+            return int(number) == 1
+    except (TypeError, ValueError):
+        pass
+    name = getattr(element, "name", None)
+    return str(name).upper() == "H" if name is not None else False
+
+
+def _atom_scene_coord(atom):
+    coord = getattr(atom, "scene_coord", None)
+    if coord is None:
+        coord = getattr(atom, "coord", None)
+    try:
+        coord = tuple(float(value) for value in coord)
+    except (TypeError, ValueError):
+        return None
+    return coord if len(coord) == 3 else None
+
+
+def _representation_color(atom, atom_displayed, surface_color, cartoon_displayed):
+    if atom_displayed:
+        return _as_color(getattr(atom, "color", None))
+    if surface_color is not None:
+        return surface_color
+    if cartoon_displayed:
+        residue = getattr(atom, "residue", None)
+        return _as_color(
+            getattr(residue, "ribbon_color", None),
+            _as_color(getattr(atom, "color", None)),
+        )
+    return _as_color(getattr(atom, "color", None))
+
+
 def capture_scene(session, width: int = 800, height: int = 800):
-    """Capture visible atomic models and the current camera without mutation."""
+    """Capture atoms represented by visible atoms, cartoons, or surfaces."""
 
     atoms: List[AtomRecord] = []
+    surface_colors = _surface_atom_colors(session)
     for model in _scene_models(session):
-        if not getattr(model, "display", True):
+        if not _model_is_visible(model):
             continue
         for atom in getattr(model, "atoms", ()):
-            if not getattr(atom, "display", True):
+            atom_displayed = _atom_is_displayed(atom)
+            residue = getattr(atom, "residue", None)
+            cartoon_displayed = _cartoon_is_displayed(residue)
+            surface_color = surface_colors.get(_atom_key(atom))
+            if not (atom_displayed or cartoon_displayed or surface_color is not None):
                 continue
-            coord = getattr(atom, "coord", None)
-            try:
-                coord = tuple(float(value) for value in coord)
-            except (TypeError, ValueError):
+            if not atom_displayed and _atom_is_hydrogen(atom):
                 continue
-            if len(coord) != 3:
+            coord = _atom_scene_coord(atom)
+            if coord is None:
                 continue
             atoms.append(AtomRecord(
                 coord=coord,
-                color=_as_color(getattr(atom, "color", None)),
+                color=_representation_color(
+                    atom, atom_displayed, surface_color, cartoon_displayed
+                ),
                 radius=_atom_radius(atom),
                 subunit="%s:%s" % (_model_name(model), _chain_id(atom)),
                 residue=_residue_number(atom),
@@ -211,7 +325,7 @@ def capture_scene(session, width: int = 800, height: int = 800):
     warnings = []
     if not atoms:
         warnings.append(
-            "没有可见原子球体；首版仅支持原子球体，请先在 ChimeraX 中执行 show atoms"
+            "没有可捕获的原子、cartoon 或 molecular surface"
         )
     if "ortho" not in projection.lower() and projection not in ("unknown", ""):
         warnings.append("当前相机为透视投影；Illustrate 预览使用正交投影")

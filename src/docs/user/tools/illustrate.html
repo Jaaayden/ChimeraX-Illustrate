@@ -4,10 +4,18 @@
 <body>
 <h1>Illustrate</h1>
 <p>
-The Illustrate tool captures visible atomic models and the current camera view,
-then renders a non-photorealistic molecular illustration. Capture a new scene
-after changing the ChimeraX camera. Parameter changes after capture update the
-preview after a short debounce.
+The Illustrate tool captures atoms represented by visible atoms, cartoon
+residues, or molecular-surface patches together with the current camera view,
+then renders a non-photorealistic molecular illustration made from atomic
+spheres. Hidden models remain excluded. Capture a new scene after changing the
+ChimeraX camera. Parameter changes after capture update the preview after a
+short debounce.
+</p>
+<p>
+The <b>一键链配色</b> button colors all open atomic models by chain, applies
+chain-relative element shades, hides hydrogens, and sets a white background,
+soft lighting, and ChimeraX silhouettes. Click <b>捕获当前场景</b> after
+coloring to refresh the Illustrate snapshot.
 </p>
 <p>
 The default contour level is 4, matching the reference Illustrate input;
@@ -30,9 +38,10 @@ constructing several full-frame temporary arrays at once; larger images still
 require more time and memory.
 </p>
 <p>
-The first version supports atomic spheres. The output uses an orthographic
-projection to match the original Illustrate renderer; perspective cameras are
-accepted but may show a scale difference.
+The output uses atomic spheres even when the source representation is cartoon
+or molecular surface; the original cartoon or surface mesh is not rasterized.
+The output uses an orthographic projection to match the original Illustrate
+renderer; perspective cameras are accepted but may show a scale difference.
 </p>
 </body>
 </html>

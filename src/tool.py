@@ -39,6 +39,7 @@ from .render import (
     scale_style_for_output,
 )
 from .scene import capture_scene as capture_chimerax_scene
+from .palette import apply_chain_palette as color_chains
 
 
 DEFAULT_STYLE = IllustrationStyle()
@@ -125,6 +126,12 @@ class IllustrateTool(ToolInstance):
         self.capture_button = QPushButton("捕获当前场景")
         self.capture_button.clicked.connect(self.capture_scene)
         actions.addWidget(self.capture_button)
+        self.palette_button = QPushButton("一键链配色")
+        self.palette_button.clicked.connect(self.apply_chain_palette)
+        self.palette_button.setToolTip(
+            "按链自动配色，并设置白色背景、柔和光照和 ChimeraX 轮廓线。"
+        )
+        actions.addWidget(self.palette_button)
         self.save_button = QPushButton("导出 PNG")
         self.save_button.clicked.connect(self._choose_save_path)
         self.save_button.setEnabled(False)
@@ -328,7 +335,7 @@ class IllustrateTool(ToolInstance):
             return
         if not scene.atoms:
             self._invalidate_snapshot(
-                "没有捕获到可见原子球体；首版仅支持原子球体，请先在 ChimeraX 中执行 show atoms"
+                "没有捕获到可见原子、cartoon 或 molecular surface"
             )
             return
         self._scene = scene
@@ -337,11 +344,25 @@ class IllustrateTool(ToolInstance):
         self._capture_width = self.preview_size.value()
         self._capture_height = self.preview_size.value()
         self.save_button.setEnabled(True)
-        message = "已捕获 %d 个可见原子" % len(scene.atoms)
+        message = "已捕获 %d 个原子（来自 atom/cartoon/surface）" % len(scene.atoms)
         if warning:
             message += "；" + warning
         self._set_status(message)
         self._schedule_render()
+
+    def apply_chain_palette(self):
+        try:
+            assignments = color_chains(self.session)
+        except Exception as error:
+            self._set_status("链配色失败: %s" % error)
+            return
+        if not assignments:
+            self._set_status("没有可配色的原子模型")
+            return
+        self._set_status(
+            "已为 %d 条链配色；请点击“捕获当前场景”更新预览"
+            % len(assignments)
+        )
 
     def _invalidate_snapshot(self, message):
         self._generation += 1
@@ -438,7 +459,7 @@ class IllustrateTool(ToolInstance):
     def save_image(self, path, transparent=True, width=None, height=None):
         if self._scene is None or self._view is None or not self._scene.atoms:
             raise UserError(
-                "没有可导出的原子球体；请在 ChimeraX 中执行 show atoms 后重新捕获"
+                "没有可导出的场景；请显示 atom、cartoon 或 surface 后重新捕获"
             )
         width = int(width or self.output_width.value())
         height = int(height or self.output_height.value())

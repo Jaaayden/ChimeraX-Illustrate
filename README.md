@@ -12,7 +12,8 @@ Illustrate for ChimeraX 是一个 ChimeraX bundle，将当前 ChimeraX 场景转
 
 ## 主要功能
 
-- 捕获当前可见的原子球体、颜色、半径和分组信息。
+- 捕获当前显示为 atom、cartoon 或 molecular surface 的分子内容，并读取对应颜色、原子半径和分组信息。
+- 提供“一键链配色”按钮，可直接为当前原子模型按链配色并设置适合插图的显示环境。
 - 捕获当前 ChimeraX 相机和视角；渲染器使用 Illustrate 风格的正交投影模型。
 - 低分辨率预览和参数修改后的防抖更新。
 - 轮廓、亚基边界、残基边界、软阴影和雾化控制。
@@ -20,7 +21,7 @@ Illustrate for ChimeraX 是一个 ChimeraX bundle，将当前 ChimeraX 场景转
 - 支持 2–8000 像素的导出宽度和高度；大尺寸导出使用分块处理。
 - 提供参数说明、实用范围和默认参数恢复功能。
 
-首版只支持原子球体。Cartoon、surface 和其他复杂模型暂不转换为原子球体。
+渲染结果仍由原子球体组成。Cartoon 和 molecular surface 的几何网格不会被直接栅格化；插件会读取当前可见 cartoon 残基或 surface patch 所关联的原子，再转换为 Illustrate 风格球体。隐藏的整个模型不会被捕获。
 
 ## 安装
 
@@ -49,17 +50,20 @@ devel build /absolute/path/to/this/repository
 
 ## 使用
 
-1. 在 ChimeraX 中打开结构并显示需要绘制的原子球体。
+1. 在 ChimeraX 中打开结构，并用 atom、cartoon 或 molecular surface 显示需要绘制的部分。
 2. 调整 ChimeraX 中的颜色、显示状态和视角。
-3. 执行 `illustrate`，点击“捕获当前场景”。
-4. 在工具窗口中调整参数并查看预览。
-5. 设置输出尺寸并导出 PNG。
+3. 如需自动配色，执行 `illustrate` 后点击“一键链配色”。
+4. 点击“捕获当前场景”。
+5. 在工具窗口中调整参数并查看预览。
+6. 设置输出尺寸并导出 PNG。
 
 改变 ChimeraX 视角后，需要再次捕获场景。参数修改会作用于已捕获的快照，不会修改 ChimeraX 原始模型。
 
 ## 快速分配链颜色
 
-仓库还提供了一个可独立运行的 ChimeraX 脚本 [`chimerax-chain-palette.py`](chimerax-chain-palette.py)，用于按链自动分配一组适合 Illustrate 风格的颜色。它会对当前打开的原子模型依次处理各条链，并对常见元素使用同一链颜色的明暗变化；同时可设置白色背景、柔和光照、轮廓线并隐藏氢原子。
+Illustrate 工具窗口中的“一键链配色”按钮可按链自动分配一组适合 Illustrate 风格的颜色。它会对当前打开的原子模型依次处理各条链，并对常见元素使用同一链颜色的明暗变化；同时设置白色背景、柔和光照、轮廓线并隐藏氢原子。配色后点击“捕获当前场景”即可更新预览。
+
+仓库仍保留兼容脚本 [`chimerax-chain-palette.py`](chimerax-chain-palette.py)。需要从命令行使用时，在 ChimeraX 中运行：
 
 在 ChimeraX 中打开结构后运行：
 
@@ -67,7 +71,7 @@ devel build /absolute/path/to/this/repository
 runscript /absolute/path/to/chimerax-chain-palette.py
 ```
 
-脚本只修改 ChimeraX 的显示颜色和相关显示设置，不修改坐标，也不会覆盖输入结构文件。完成颜色分配后，可以运行 `illustrate` 并点击“捕获当前场景”，将当前颜色带入 Illustrate 渲染。该脚本不需要手动编辑 `.inp` 文件，也可以不安装 Illustrate bundle 单独使用。
+按钮和脚本只修改 ChimeraX 的显示颜色及相关显示设置，不修改坐标，也不会覆盖输入结构文件。
 
 ## 命令
 

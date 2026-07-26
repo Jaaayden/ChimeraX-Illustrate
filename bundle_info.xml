@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<BundleInfo name="ChimeraX-Illustrate" version="0.1.16" package="illustrate"
+<BundleInfo name="ChimeraX-Illustrate" version="0.1.17" package="illustrate"
     purePython="true" minSessionVersion="1" maxSessionVersion="1">
   <Author>Illustrate contributors</Author>
   <Email>See the project repository for support information.</Email>
   <URL>https://github.com/ccsb-scripps/Illustrate</URL>
   <Synopsis>Non-photorealistic biomolecular illustration from the current ChimeraX atomic scene.</Synopsis>
   <Description>
-    Captures visible atomic models and the current ChimeraX camera, then renders
-    an Illustrate-style image with depth buffering, contours, group boundaries,
+    Captures atoms represented by visible atoms, cartoons, or molecular
+    surfaces together with the current ChimeraX camera, then renders an
+    Illustrate-style image with depth buffering, contours, group boundaries,
     fog, shadows, and a transparent PNG export path.
   </Description>
   <Categories>

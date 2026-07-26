@@ -12,7 +12,8 @@ This repository contains only the plugin software, documentation, tests, and lic
 
 ## Features
 
-- Captures visible atomic spheres, colors, radii, and grouping metadata.
+- Captures molecular content represented by visible atoms, cartoons, or molecular surfaces, including the corresponding colors, atomic radii, and grouping metadata.
+- Provides a one-click chain-palette button that colors current atomic models and prepares an illustration-oriented display environment.
 - Captures the current ChimeraX camera and view; the renderer uses an Illustrate-style orthographic model.
 - Low-resolution preview with debounced updates after parameter changes.
 - Controls for contours, subunit boundaries, residue boundaries, soft shadows, and fog.
@@ -20,7 +21,7 @@ This repository contains only the plugin software, documentation, tests, and lic
 - Output width and height from 2 to 8000 pixels; large exports use tiled processing.
 - Built-in parameter explanations, practical ranges, and a reset-to-default action.
 
-The first release supports atomic spheres only. Cartoon, surface, and other complex representations are not converted into atomic spheres.
+The rendered output still consists of atomic spheres. Cartoon and molecular-surface meshes are not rasterized directly; the plugin collects the atoms associated with visible cartoon residues or surface patches and converts them to Illustrate-style spheres. Entirely hidden models remain excluded.
 
 ## Installation
 
@@ -49,25 +50,26 @@ Fortran and gfortran are not required. NumPy, Qt, and the ChimeraX APIs are supp
 
 ## Usage
 
-1. Open a structure in ChimeraX and display the atomic spheres to illustrate.
+1. Open a structure in ChimeraX and display the desired parts as atoms, cartoons, or molecular surfaces.
 2. Adjust colors, visibility, and the ChimeraX camera.
-3. Run `illustrate` and click **捕获当前场景**.
-4. Adjust the parameters and inspect the preview.
-5. Set the output dimensions and export a PNG.
+3. Run `illustrate` and optionally click **一键链配色** to apply the built-in chain palette.
+4. Click **捕获当前场景**.
+5. Adjust the parameters and inspect the preview.
+6. Set the output dimensions and export a PNG.
 
 Capture the scene again after changing the ChimeraX camera. Parameter changes affect the captured snapshot and do not modify the original ChimeraX model.
 
 ## Quick chain coloring
 
-The repository also includes the standalone ChimeraX script [`chimerax-chain-palette.py`](chimerax-chain-palette.py). It assigns a consistent palette across the chains in the currently open atomic models. Common elements receive lightness variations of the chain color, and the script can also set a white background, soft lighting, silhouettes, and hidden hydrogens to prepare a scene for Illustrate-style rendering.
+The **一键链配色** button in the Illustrate tool assigns a consistent palette across the chains in the currently open atomic models. Common elements receive lightness variations of the chain color, and the action also sets a white background, soft lighting, silhouettes, and hidden hydrogens. Click **捕获当前场景** afterward to refresh the preview.
 
-After opening a structure in ChimeraX, run:
+The repository retains [`chimerax-chain-palette.py`](chimerax-chain-palette.py) as a command-line compatibility entry point. To use it, run:
 
 ```text
 runscript /absolute/path/to/chimerax-chain-palette.py
 ```
 
-The script changes ChimeraX display colors and related display settings only. It does not change coordinates or overwrite input structure files. After the palette is applied, run `illustrate` and click **捕获当前场景** to capture those colors in the Illustrate renderer. The script does not require manual `.inp` editing and can be used independently of the Illustrate bundle.
+The button and script change ChimeraX display colors and related display settings only. They do not change coordinates or overwrite input structure files.
 
 ## Commands
 
