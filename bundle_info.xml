@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<BundleInfo name="ChimeraX-Illustrate" version="0.1.17" package="illustrate"
+<BundleInfo name="ChimeraX-Illustrate" version="0.1.19" package="illustrate"
     purePython="true" minSessionVersion="1" maxSessionVersion="1">
   <Author>Illustrate contributors</Author>
   <Email>See the project repository for support information.</Email>

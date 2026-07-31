@@ -9,9 +9,13 @@ accelerated backend when available; the public data model is unchanged.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
+from functools import lru_cache
 import math
+import os
 import struct
+from threading import Lock
 from typing import Iterable, List, Optional, Sequence, Tuple
 import zlib
 
@@ -19,6 +23,28 @@ try:
     import numpy as _np
 except ImportError:  # The renderer remains testable without ChimeraX/NumPy.
     _np = None
+
+
+_SHADOW_WORKERS = min(4, os.cpu_count() or 1)
+_SHADOW_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_SHADOW_WORKERS, thread_name_prefix="illustrate-shadow"
+)
+_RASTER_CACHE_LOCK = Lock()
+_RASTER_CACHE = {
+    "scene": None,
+    "key": None,
+    "depth": None,
+    "atom_map": None,
+    "origin": None,
+}
+_SHADOW_CACHE_LOCK = Lock()
+_SHADOW_CACHE = {
+    "owner": None,
+    "key": None,
+    "shadow": None,
+}
+_PNG_COMPRESSION_LEVEL = 3
+_PNG_IDAT_CHUNK_SIZE = 1024 * 1024
 
 
 Color = Tuple[float, float, float]
@@ -133,6 +159,31 @@ class RenderedImage:
         if transparent:
             return self.rgba
         br, bg, bb = (max(0, min(255, int(round(c * 255.0)))) for c in self.background)
+        if _np is not None:
+            source = _np.frombuffer(self.rgba, dtype=_np.uint8).reshape(
+                self.height, self.width, 4
+            )
+            output = bytearray(len(self.rgba))
+            target = _np.frombuffer(output, dtype=_np.uint8).reshape(
+                self.height, self.width, 4
+            )
+            background = _np.asarray((br, bg, bb), dtype=_np.uint16)
+            # Work in row tiles so an opaque 8K export does not need several
+            # additional full-resolution uint16 compositing buffers.
+            for y0 in range(0, self.height, 512):
+                y1 = min(self.height, y0 + 512)
+                tile = source[y0:y1]
+                alpha = tile[..., 3].astype(_np.uint16)
+                inverse = 255 - alpha
+                target[y0:y1, :, :3] = (
+                    (
+                        tile[..., :3].astype(_np.uint16) * alpha[..., None]
+                        + background * inverse[..., None]
+                    )
+                    // 255
+                ).astype(_np.uint8)
+                target[y0:y1, :, 3] = 255
+            return bytes(output)
         out = bytearray(len(self.rgba))
         for i in range(0, len(self.rgba), 4):
             alpha = self.rgba[i + 3]
@@ -190,7 +241,15 @@ def _center_viewed_coordinates(atoms: Sequence[AtomRecord], view: ViewSnapshot) 
     return center, zmax - zmin
 
 
-def _sphere_points(radius: float) -> List[Tuple[int, int, float]]:
+@lru_cache(maxsize=128)
+def _sphere_points(radius: float) -> Tuple[Tuple[int, int, float], ...]:
+    """Return the raster samples for a sphere radius.
+
+    Molecular scenes normally contain only a handful of distinct atom radii.
+    Reusing their integer sphere tables avoids rebuilding the same, increasingly
+    large table for every atom during high-resolution exports.
+    """
+
     radius = max(0.0, radius)
     limit = int(radius)
     points: List[Tuple[int, int, float]] = []
@@ -199,7 +258,26 @@ def _sphere_points(radius: float) -> List[Tuple[int, int, float]]:
             distance = math.sqrt(float(dx * dx + dy * dy))
             if distance <= radius:
                 points.append((dx, dy, math.sqrt(max(0.0, radius * radius - distance * distance))))
-    return points
+    return tuple(points)
+
+
+@lru_cache(maxsize=128)
+def _sphere_arrays(radius: float):
+    """Return cached NumPy arrays for vectorized sphere rasterization."""
+
+    points = _sphere_points(radius)
+    if not points:
+        return (
+            _np.empty(0, dtype=_np.int32),
+            _np.empty(0, dtype=_np.int32),
+            _np.empty(0, dtype=_np.float64),
+        )
+    offsets_x, offsets_y, surface_z = zip(*points)
+    return (
+        _np.asarray(offsets_x, dtype=_np.int32),
+        _np.asarray(offsets_y, dtype=_np.int32),
+        _np.asarray(surface_z, dtype=_np.float64),
+    )
 
 
 def _safe_ramp(value: float, low: float, high: float) -> float:
@@ -485,6 +563,187 @@ def _numpy_shift_region(array, x0: int, x1: int, y0: int, y1: int,
     return shifted
 
 
+def _numpy_offset_slices(frame_width: int, frame_height: int,
+                         x0: int, x1: int, y0: int, y1: int,
+                         dx: int, dy: int):
+    """Return destination/source slices for ``source[y+dy, x+dx]``.
+
+    Unlike the shift helpers, this allocates no temporary image.  It is useful
+    for shadow accumulation, where out-of-frame samples can never cast a
+    shadow and therefore do not need a filled array.
+    """
+
+    dest_x0 = max(x0, -dx)
+    dest_x1 = min(x1, frame_width - dx)
+    dest_y0 = max(y0, -dy)
+    dest_y1 = min(y1, frame_height - dy)
+    if dest_x1 <= dest_x0 or dest_y1 <= dest_y0:
+        return None
+    destination = (
+        slice(dest_y0 - y0, dest_y1 - y0),
+        slice(dest_x0 - x0, dest_x1 - x0),
+    )
+    source = (
+        slice(dest_y0 + dy, dest_y1 + dy),
+        slice(dest_x0 + dx, dest_x1 + dx),
+    )
+    return destination, source
+
+
+def _shadow_offsets(style: IllustrationStyle):
+    shadow_radius = max(1, int(round(50.0 * style.raster_scale)))
+    shadow_step = max(1, int(round(5.0 * style.raster_scale)))
+    offsets = []
+    for dx in range(-shadow_radius, shadow_radius + 1, shadow_step):
+        for dy in range(-shadow_radius, shadow_radius + 1, shadow_step):
+            if dx == 0 and dy == 0:
+                continue
+            distance = math.sqrt(float(dx * dx + dy * dy))
+            if distance <= float(shadow_radius):
+                offsets.append((dx, dy, distance))
+    return offsets
+
+
+def _numpy_shadow_rows(depth, visible, style: IllustrationStyle,
+                       frame_width: int, frame_height: int,
+                       tile_y0: int, local_y0: int, local_y1: int,
+                       offsets):
+    """Accumulate shadows for a row range while preserving sample order."""
+
+    np = _np
+    global_y0 = tile_y0 + local_y0
+    global_y1 = tile_y0 + local_y1
+    current_depth = depth[global_y0:global_y1, :]
+    current_visible = visible[local_y0:local_y1, :]
+    shadow_count = np.zeros(
+        (local_y1 - local_y0, frame_width), dtype=np.float32
+    )
+    for dx, dy, distance in offsets:
+        slices = _numpy_offset_slices(
+            frame_width, frame_height,
+            0, frame_width, global_y0, global_y1, dx, dy,
+        )
+        if slices is None:
+            continue
+        destination, source = slices
+        difference = depth[source] - current_depth[destination]
+        shadow_count[destination] += (
+            current_visible[destination]
+            & (difference > style.shadow_depth)
+            & (distance * style.shadow_cone_angle
+               < difference + style.shadow_depth)
+        )
+    return np.maximum(
+        1.0 - shadow_count * style.shadow_contribution,
+        style.shadow_maximum,
+    )
+
+
+def _numpy_shadow(depth, visible, style: IllustrationStyle, tile_y0: int = 0):
+    """Compute soft shadows, splitting large frames over independent rows."""
+
+    np = _np
+    tile_height, frame_width = visible.shape
+    frame_height = depth.shape[0]
+    cacheable = (
+        tile_y0 == 0
+        and tile_height == frame_height
+        and depth.size <= 1024 * 1024
+    )
+    owner = depth
+    while isinstance(getattr(owner, "base", None), np.ndarray):
+        owner = owner.base
+    cache_key = (
+        int(depth.__array_interface__["data"][0]),
+        depth.shape,
+        depth.strides,
+        style.shadow_contribution,
+        style.shadow_cone_angle,
+        style.shadow_depth,
+        style.shadow_maximum,
+        style.raster_scale,
+    )
+    if cacheable:
+        with _SHADOW_CACHE_LOCK:
+            if (
+                _SHADOW_CACHE["owner"] is owner
+                and _SHADOW_CACHE["key"] == cache_key
+            ):
+                return _SHADOW_CACHE["shadow"]
+
+    offsets = _shadow_offsets(style)
+    # NumPy releases the GIL for these array operations.  Row partitions keep
+    # each pixel's offset accumulation order unchanged while using multiple
+    # cores and without duplicating full-frame buffers.
+    max_workers = _SHADOW_WORKERS
+    if tile_height * frame_width < 750_000 or max_workers == 1:
+        shadow = _numpy_shadow_rows(
+            depth, visible, style, frame_width, frame_height,
+            tile_y0, 0, tile_height, offsets,
+        )
+    else:
+        boundaries = [
+            int(round(index * tile_height / max_workers))
+            for index in range(max_workers + 1)
+        ]
+        shadow = np.empty((tile_height, frame_width), dtype=np.float32)
+        jobs = []
+        for index in range(max_workers):
+            local_y0 = boundaries[index]
+            local_y1 = boundaries[index + 1]
+            if local_y1 <= local_y0:
+                continue
+            jobs.append((
+                local_y0,
+                local_y1,
+                _SHADOW_EXECUTOR.submit(
+                    _numpy_shadow_rows,
+                    depth, visible, style, frame_width, frame_height,
+                    tile_y0, local_y0, local_y1, offsets,
+                ),
+            ))
+        for local_y0, local_y1, future in jobs:
+            shadow[local_y0:local_y1, :] = future.result()
+    if cacheable:
+        with _SHADOW_CACHE_LOCK:
+            _SHADOW_CACHE.update({
+                "owner": owner,
+                "key": cache_key,
+                "shadow": shadow,
+            })
+    return shadow
+
+
+def _expand_cropped_image(image: RenderedImage, full_width: int, full_height: int,
+                          x0: int, y0: int) -> RenderedImage:
+    """Place a processed crop back into its original transparent frame."""
+
+    if (image.width, image.height) == (full_width, full_height):
+        return image
+    background = bytes(
+        max(0, min(255, int(round(channel * 255.0))))
+        for channel in image.background
+    ) + b"\x00"
+    background_row = background * full_width
+    crop_stride = image.width * 4
+    prefix = background * x0
+    suffix = background * (full_width - x0 - image.width)
+    chunks = [background_row] * y0
+    for row in range(image.height):
+        source_start = row * crop_stride
+        chunks.extend((
+            prefix,
+            image.rgba[source_start:source_start + crop_stride],
+            suffix,
+        ))
+    chunks.extend(
+        [background_row] * (full_height - y0 - image.height)
+    )
+    return RenderedImage(
+        full_width, full_height, b"".join(chunks), image.background
+    )
+
+
 def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: IllustrationStyle,
                         width: int, height: int, depth, atom_map,
                         zmin: float, zmax: float, depth_floor: float) -> RenderedImage:
@@ -535,31 +794,23 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
     for y0 in range(0, height, tile_rows):
         y1 = min(height, y0 + tile_rows)
         tile_height = y1 - y0
+        influence_y0 = max(0, y0 - neighborhood_margin)
+        influence_y1 = min(height, y1 + neighborhood_margin)
+        if not np.any(atom_map[influence_y0:influence_y1, :] >= 0):
+            background = bytes(
+                max(0, min(255, int(round(channel * 255.0))))
+                for channel in style.background
+            ) + b"\x00"
+            output[y0 * width * 4:y1 * width * 4] = (
+                background * (tile_height * width)
+            )
+            continue
         tile_depth = depth[y0:y1, :]
         tile_atom_map = atom_map[y0:y1, :]
         visible = tile_atom_map >= 0
         shadow = np.ones((tile_height, width), dtype=np.float32)
         if style.shadows and visible.any():
-            shadow_count = np.zeros((tile_height, width), dtype=np.float32)
-            shadow_radius = max(1, int(round(50.0 * style.raster_scale)))
-            shadow_step = max(1, int(round(5.0 * style.raster_scale)))
-            for dx in range(-shadow_radius, shadow_radius + 1, shadow_step):
-                for dy in range(-shadow_radius, shadow_radius + 1, shadow_step):
-                    if dx == 0 and dy == 0:
-                        continue
-                    distance = math.sqrt(float(dx * dx + dy * dy))
-                    if distance > float(shadow_radius):
-                        continue
-                    neighbor_depth = _numpy_shift_region(
-                        depth, 0, width, y0, y1, dx, dy, depth_floor
-                    )
-                    difference = neighbor_depth - tile_depth
-                    shadow_count += (
-                        visible
-                        & (difference > style.shadow_depth)
-                        & (distance * style.shadow_cone_angle < difference + style.shadow_depth)
-                    )
-            shadow = np.maximum(1.0 - shadow_count * style.shadow_contribution, style.shadow_maximum)
+            shadow = _numpy_shadow(depth, visible, style, tile_y0=y0)
 
         z = np.minimum(tile_depth, 0.0)
         fog_fraction = style.fog_front - (zmax - z) / max(zmax - zmin, 1e-9) * (style.fog_front - style.fog_back)
@@ -617,68 +868,81 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
             contour_sum = np.zeros((tile_height, width), dtype=np.float32)
             active = np.zeros((tile_height, width), dtype=np.int8)
             center_value = np.zeros((tile_height, width), dtype=np.float32)
-            for local_x in (-1, 0, 1):
-                for local_y in (-1, 0, 1):
-                    if style.contour_kernel == 1:
-                        raw = np.zeros((tile_height, width), dtype=np.float32)
-                        for dx in (-1, 0, 1):
-                            for dy in (-1, 0, 1):
-                                raw += kernel_one[dy + 1][dx + 1] * _numpy_shift_region(
-                                    depth, 0, width, y0, y1,
-                                    (local_x + dx) * neighborhood_step,
-                                    (local_y + dy) * neighborhood_step,
-                                    depth_floor
-                                )
-                        raw = np.abs(raw / 3.0)
-                    elif style.contour_kernel == 2:
-                        raw = np.zeros((tile_height, width), dtype=np.float32)
-                        for (dx, dy), weight in kernel_two.items():
-                            raw += weight * _numpy_shift_region(
+            local_offsets = (
+                ((0, 0),)
+                if style.contour_kernel in (3, 4)
+                else tuple((x, y) for x in (-1, 0, 1) for y in (-1, 0, 1))
+            )
+            for local_x, local_y in local_offsets:
+                if style.contour_kernel == 1:
+                    raw = np.zeros((tile_height, width), dtype=np.float32)
+                    for dx in (-1, 0, 1):
+                        for dy in (-1, 0, 1):
+                            raw += kernel_one[dy + 1][dx + 1] * _numpy_shift_region(
                                 depth, 0, width, y0, y1,
                                 (local_x + dx) * neighborhood_step,
                                 (local_y + dy) * neighborhood_step,
                                 depth_floor
                             )
-                        raw = np.abs(raw / 3.0)
-                    else:
-                        raw = np.zeros((tile_height, width), dtype=np.float32)
-                        offsets = range(-1, 2) if style.contour_kernel == 3 else range(-2, 3)
-                        center_depth = _numpy_shift_region(
+                    raw = np.abs(raw / 3.0)
+                elif style.contour_kernel == 2:
+                    raw = np.zeros((tile_height, width), dtype=np.float32)
+                    for (dx, dy), weight in kernel_two.items():
+                        raw += weight * _numpy_shift_region(
                             depth, 0, width, y0, y1,
-                            0,
-                            0,
+                            (local_x + dx) * neighborhood_step,
+                            (local_y + dy) * neighborhood_step,
                             depth_floor
                         )
-                        for dx in offsets:
-                            for dy in offsets:
-                                if style.contour_kernel == 4 and abs(dx * dy) == 4:
-                                    continue
-                                difference = np.abs(
-                                    center_depth - _numpy_shift_region(
-                                    depth, 0, width, y0, y1,
-                                        dx * neighborhood_step,
-                                        dy * neighborhood_step,
-                                        depth_floor
-                                    )
-                                )
-                                raw += np.where(
-                                    difference > style.contour_depth_min,
-                                    np.minimum(
-                                        (difference - style.contour_depth_min)
-                                        / max(style.contour_depth_max - style.contour_depth_min, 1e-9),
-                                        1.0,
-                                    ),
-                                    0.0,
-                                )
-                    value = np.clip(
-                        (raw - contour_low) / max(contour_high - contour_low, 1e-9),
-                        0.0, 1.0,
+                    raw = np.abs(raw / 3.0)
+                else:
+                    raw = np.zeros((tile_height, width), dtype=np.float32)
+                    offsets = range(-1, 2) if style.contour_kernel == 3 else range(-2, 3)
+                    center_depth = _numpy_shift_region(
+                        depth, 0, width, y0, y1,
+                        0,
+                        0,
+                        depth_floor
                     )
+                    for dx in offsets:
+                        for dy in offsets:
+                            if style.contour_kernel == 4 and abs(dx * dy) == 4:
+                                continue
+                            difference = np.abs(
+                                center_depth - _numpy_shift_region(
+                                    depth, 0, width, y0, y1,
+                                    dx * neighborhood_step,
+                                    dy * neighborhood_step,
+                                    depth_floor
+                                )
+                            )
+                            raw += np.where(
+                                difference > style.contour_depth_min,
+                                np.minimum(
+                                    (difference - style.contour_depth_min)
+                                    / max(style.contour_depth_max - style.contour_depth_min, 1e-9),
+                                    1.0,
+                                ),
+                                0.0,
+                            )
+                value = np.clip(
+                    (raw - contour_low) / max(contour_high - contour_low, 1e-9),
+                    0.0, 1.0,
+                )
+                if style.contour_kernel in (3, 4):
+                    # The original kernel ignores the outer 3x3 sample offset
+                    # for count-based kernels, so all nine values are equal.
+                    # Preserve its nine-sample/six-threshold normalization
+                    # without recomputing the same depth differences nine times.
+                    contour_sum = value * np.float32(9.0)
+                    active = np.where(value > 0.0, 9, 0).astype(np.int8)
+                    center_value = value
+                else:
                     contour_sum += value
                     active += value > 0.0
                     if local_x == 0 and local_y == 0:
                         center_value = value
-            core = np.where(active >= 6, contour_sum / 6.0, center_value)
+            core = np.where(active >= 6, contour_sum / np.float32(6.0), center_value)
             inner_top = max(0, neighborhood_margin - y0)
             inner_bottom = min(tile_height, height - neighborhood_margin - y0)
             if inner_bottom > inner_top:
@@ -702,8 +966,8 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
     """NumPy implementation used by ChimeraX for interactive preview speed."""
 
     np = _np
-    depth = np.full((height, width), -10000.0, dtype=np.float32)
-    atom_map = np.full((height, width), -1, dtype=np.int32)
+    full_width = width
+    full_height = height
     center, _ = _center_viewed_coordinates(scene.atoms, view)
     projected = []
     subunit_codes = []
@@ -739,30 +1003,128 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
          if pz < 0.0 and radius > 0.0),
         default=-10000.0,
     ) - 1.0
-    depth.fill(depth_floor)
 
     color_array = np.asarray(colors if colors else [(0.5, 0.5, 0.5)], dtype=np.float32)
     subunit_array = np.asarray(subunit_codes if subunit_codes else [0], dtype=np.int32)
     residue_array = np.asarray(residue_numbers if residue_numbers else [9999], dtype=np.int32)
 
-    # Use the same integer sphere table and ``int(center + offset)`` mapping
-    # as Illustrate's original Fortran rasterizer.  A continuous disk mask
-    # looks superficially similar, but changes the depth buffer by a pixel at
-    # many atom edges; the downstream contour kernels then produce a visibly
-    # different illustration even when every style parameter is identical.
-    for atom_index, (px, py, pz, radius) in enumerate(projected):
-        if pz >= 0.0 or radius <= 0.0:
-            continue
-        for offset_x, offset_y, surface_z in _sphere_points(radius):
-            x = int(px + offset_x)
-            y = int(py + offset_y)
-            if x < 0 or x >= width or y < 0 or y >= height:
-                continue
-            z = surface_z + pz
-            if z > depth[y, x]:
-                depth[y, x] = z
-                atom_map[y, x] = atom_index
+    # Establish a conservative sphere-plus-neighborhood rectangle before
+    # allocating the depth and atom-index buffers.  Sparse 6K/8K scenes often
+    # occupy a small part of the frame, so allocating those two arrays only
+    # for the active rectangle avoids hundreds of megabytes of transparent
+    # temporary storage.  Sphere sampling coordinates remain in the original
+    # full-frame system and are shifted only after integer truncation.
+    raster_x0 = 0
+    raster_y0 = 0
+    raster_x1 = width
+    raster_y1 = height
+    active_projected = [
+        projected_atom
+        for projected_atom in projected
+        if projected_atom[2] < 0.0 and projected_atom[3] > 0.0
+    ]
+    if active_projected:
+        neighborhood_step = max(1, int(round(style.raster_scale)))
+        padding = 6 * neighborhood_step
+        candidate_x0 = max(0, int(math.floor(min(
+            px - math.ceil(radius) - 2
+            for px, _py, _pz, radius in active_projected
+        ))) - padding)
+        candidate_x1 = min(width, int(math.ceil(max(
+            px + math.ceil(radius) + 2
+            for px, _py, _pz, radius in active_projected
+        ))) + padding + 1)
+        candidate_y0 = max(0, int(math.floor(min(
+            py - math.ceil(radius) - 2
+            for _px, py, _pz, radius in active_projected
+        ))) - padding)
+        candidate_y1 = min(height, int(math.ceil(max(
+            py + math.ceil(radius) + 2
+            for _px, py, _pz, radius in active_projected
+        ))) + padding + 1)
+        candidate_area = (
+            (candidate_x1 - candidate_x0)
+            * (candidate_y1 - candidate_y0)
+        )
+        if (
+            candidate_x1 > candidate_x0
+            and candidate_y1 > candidate_y0
+            and candidate_area < width * height * 0.9
+        ):
+            raster_x0 = candidate_x0
+            raster_x1 = candidate_x1
+            raster_y0 = candidate_y0
+            raster_y1 = candidate_y1
 
+    cache_key = (
+        view,
+        full_width,
+        full_height,
+        style.radius_scale,
+        raster_x0,
+        raster_y0,
+        raster_x1,
+        raster_y1,
+    )
+    cacheable = full_width <= 1024 and full_height <= 1024
+    with _RASTER_CACHE_LOCK:
+        cache_hit = (
+            cacheable
+            and _RASTER_CACHE["scene"] is scene
+            and _RASTER_CACHE["key"] == cache_key
+        )
+        if cache_hit:
+            depth = _RASTER_CACHE["depth"]
+            atom_map = _RASTER_CACHE["atom_map"]
+    if not cache_hit:
+        raster_width = raster_x1 - raster_x0
+        raster_height = raster_y1 - raster_y0
+        depth = np.full(
+            (raster_height, raster_width), depth_floor, dtype=np.float32
+        )
+        atom_map = np.full(
+            (raster_height, raster_width), -1, dtype=np.int32
+        )
+        # Use the same integer sphere table and ``int(center + offset)``
+        # mapping as Illustrate's original Fortran rasterizer.  A continuous
+        # disk mask changes the depth buffer at atom edges and therefore the
+        # downstream illustration style.
+        for atom_index, (px, py, pz, radius) in enumerate(projected):
+            if pz >= 0.0 or radius <= 0.0:
+                continue
+            offsets_x, offsets_y, surface_z = _sphere_arrays(radius)
+            x = np.trunc(px + offsets_x).astype(np.intp)
+            y = np.trunc(py + offsets_y).astype(np.intp)
+            inside = (
+                (x >= raster_x0)
+                & (x < raster_x1)
+                & (y >= raster_y0)
+                & (y < raster_y1)
+            )
+            if not inside.all():
+                x = x[inside]
+                y = y[inside]
+                surface_z = surface_z[inside]
+            x = x - raster_x0
+            y = y - raster_y0
+            z = surface_z + pz
+            nearer = z > depth[y, x]
+            if nearer.any():
+                x = x[nearer]
+                y = y[nearer]
+                depth[y, x] = z[nearer]
+                atom_map[y, x] = atom_index
+        if cacheable:
+            with _RASTER_CACHE_LOCK:
+                _RASTER_CACHE.update({
+                    "scene": scene,
+                    "key": cache_key,
+                    "depth": depth,
+                    "atom_map": atom_map,
+                    "origin": (raster_x0, raster_y0),
+                })
+
+    height, width = depth.shape
     visible = atom_map >= 0
     visible_depths = depth[visible]
     if visible_depths.size:
@@ -773,31 +1135,40 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
         zmax = 0.0
     zspread = max(zmax - zmin, 1e-9)
 
+    crop_x0 = raster_x0
+    crop_y0 = raster_y0
+    if visible.any():
+        visible_rows = np.flatnonzero(np.any(visible, axis=1))
+        visible_columns = np.flatnonzero(np.any(visible, axis=0))
+        neighborhood_step = max(1, int(round(style.raster_scale)))
+        crop_padding = 6 * neighborhood_step
+        crop_x0 = max(0, int(visible_columns[0]) - crop_padding)
+        crop_x1 = min(width, int(visible_columns[-1]) + crop_padding + 1)
+        crop_y0 = max(0, int(visible_rows[0]) - crop_padding)
+        crop_y1 = min(height, int(visible_rows[-1]) + crop_padding + 1)
+        crop_area = (crop_x1 - crop_x0) * (crop_y1 - crop_y0)
+        if crop_area < width * height * 0.9:
+            depth = depth[crop_y0:crop_y1, crop_x0:crop_x1]
+            atom_map = atom_map[crop_y0:crop_y1, crop_x0:crop_x1]
+            visible = atom_map >= 0
+            height, width = depth.shape
+            crop_x0 += raster_x0
+            crop_y0 += raster_y0
+        else:
+            crop_x0 = raster_x0
+            crop_y0 = raster_y0
+
     if width > 4096 or height > 4096:
-        return _render_numpy_tiled(
+        image = _render_numpy_tiled(
             scene, view, style, width, height, depth, atom_map, zmin, zmax, depth_floor
+        )
+        return _expand_cropped_image(
+            image, full_width, full_height, crop_x0, crop_y0
         )
 
     shadow = np.ones((height, width), dtype=np.float32)
     if style.shadows and visible.any():
-        shadow_count = np.zeros((height, width), dtype=np.float32)
-        shadow_radius = max(1, int(round(50.0 * style.raster_scale)))
-        shadow_step = max(1, int(round(5.0 * style.raster_scale)))
-        for dx in range(-shadow_radius, shadow_radius + 1, shadow_step):
-            for dy in range(-shadow_radius, shadow_radius + 1, shadow_step):
-                if dx == 0 and dy == 0:
-                    continue
-                distance = math.sqrt(float(dx * dx + dy * dy))
-                if distance > float(shadow_radius):
-                    continue
-                neighbor_depth = _numpy_shift(depth, dx, dy, depth_floor)
-                difference = neighbor_depth - depth
-                shadow_count += (
-                    visible
-                    & (difference > style.shadow_depth)
-                    & (distance * style.shadow_cone_angle < difference + style.shadow_depth)
-                )
-        shadow = np.maximum(1.0 - shadow_count * style.shadow_contribution, style.shadow_maximum)
+        shadow = _numpy_shadow(depth, visible, style)
 
     z = np.minimum(depth, 0.0)
     fog_fraction = style.fog_front - (zmax - z) / zspread * (style.fog_front - style.fog_back)
@@ -869,64 +1240,76 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
             (-1, -2): -0.1, (0, -2): -0.2, (1, -2): -0.1,
             (-1, 2): -0.1, (0, 2): -0.2, (1, 2): -0.1,
         }
-        for local_x in (-1, 0, 1):
-            for local_y in (-1, 0, 1):
-                y_start = contour_pad + contour_inner + local_y * neighborhood_step
-                y_end = contour_pad + height - contour_inner + local_y * neighborhood_step
-                x_start = contour_pad + contour_inner + local_x * neighborhood_step
-                x_end = contour_pad + width - contour_inner + local_x * neighborhood_step
-                if style.contour_kernel == 1:
-                    raw = np.zeros((height - 2 * contour_inner, width - 2 * contour_inner), dtype=np.float32)
-                    for dx in (-1, 0, 1):
-                        for dy in (-1, 0, 1):
-                            raw += kernel_one[dy + 1][dx + 1] * padded_depth[
-                                y_start + dy * neighborhood_step:y_end + dy * neighborhood_step,
-                                x_start + dx * neighborhood_step:x_end + dx * neighborhood_step,
-                            ]
-                    raw = np.abs(raw / 3.0)
-                elif style.contour_kernel == 2:
-                    raw = np.zeros((height - 2 * contour_inner, width - 2 * contour_inner), dtype=np.float32)
-                    for (dx, dy), weight in kernel_two.items():
-                        raw += weight * padded_depth[
+        local_offsets = (
+            ((0, 0),)
+            if style.contour_kernel in (3, 4)
+            else tuple((x, y) for x in (-1, 0, 1) for y in (-1, 0, 1))
+        )
+        for local_x, local_y in local_offsets:
+            y_start = contour_pad + contour_inner + local_y * neighborhood_step
+            y_end = contour_pad + height - contour_inner + local_y * neighborhood_step
+            x_start = contour_pad + contour_inner + local_x * neighborhood_step
+            x_end = contour_pad + width - contour_inner + local_x * neighborhood_step
+            if style.contour_kernel == 1:
+                raw = np.zeros((height - 2 * contour_inner, width - 2 * contour_inner), dtype=np.float32)
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        raw += kernel_one[dy + 1][dx + 1] * padded_depth[
                             y_start + dy * neighborhood_step:y_end + dy * neighborhood_step,
                             x_start + dx * neighborhood_step:x_end + dx * neighborhood_step,
                         ]
-                    raw = np.abs(raw / 3.0)
-                else:
-                    raw = np.zeros((height - 2 * contour_inner, width - 2 * contour_inner), dtype=np.float32)
-                    offsets = range(-1, 2) if style.contour_kernel == 3 else range(-2, 3)
-                    for dx in offsets:
-                        for dy in offsets:
-                            if style.contour_kernel == 4 and abs(dx * dy) == 4:
-                                continue
-                            difference = np.abs(
-                                padded_depth[
-                                    contour_pad + contour_inner:contour_pad + height - contour_inner,
-                                    contour_pad + contour_inner:contour_pad + width - contour_inner,
-                                ]
-                                - padded_depth[
-                                    contour_pad + contour_inner + dy * neighborhood_step:
-                                    contour_pad + height - contour_inner + dy * neighborhood_step,
-                                    contour_pad + contour_inner + dx * neighborhood_step:
-                                    contour_pad + width - contour_inner + dx * neighborhood_step,
-                                ]
-                            )
-                            raw += np.where(
-                                difference > style.contour_depth_min,
-                                np.minimum(
-                                    (difference - style.contour_depth_min)
-                                    / max(style.contour_depth_max - style.contour_depth_min, 1e-9),
-                                    1.0,
-                                ),
-                                0.0,
-                            )
-                values.append(np.clip(
-                    (raw - contour_low) / max(contour_high - contour_low, 1e-9),
-                    0.0, 1.0,
-                ))
-        stacked = np.stack(values, axis=0)
-        active = np.sum(stacked > 0.0, axis=0)
-        core = np.where(active >= 6, np.sum(stacked, axis=0) / 6.0, stacked[4])
+                raw = np.abs(raw / 3.0)
+            elif style.contour_kernel == 2:
+                raw = np.zeros((height - 2 * contour_inner, width - 2 * contour_inner), dtype=np.float32)
+                for (dx, dy), weight in kernel_two.items():
+                    raw += weight * padded_depth[
+                        y_start + dy * neighborhood_step:y_end + dy * neighborhood_step,
+                        x_start + dx * neighborhood_step:x_end + dx * neighborhood_step,
+                    ]
+                raw = np.abs(raw / 3.0)
+            else:
+                raw = np.zeros((height - 2 * contour_inner, width - 2 * contour_inner), dtype=np.float32)
+                offsets = range(-1, 2) if style.contour_kernel == 3 else range(-2, 3)
+                for dx in offsets:
+                    for dy in offsets:
+                        if style.contour_kernel == 4 and abs(dx * dy) == 4:
+                            continue
+                        difference = np.abs(
+                            padded_depth[
+                                contour_pad + contour_inner:contour_pad + height - contour_inner,
+                                contour_pad + contour_inner:contour_pad + width - contour_inner,
+                            ]
+                            - padded_depth[
+                                contour_pad + contour_inner + dy * neighborhood_step:
+                                contour_pad + height - contour_inner + dy * neighborhood_step,
+                                contour_pad + contour_inner + dx * neighborhood_step:
+                                contour_pad + width - contour_inner + dx * neighborhood_step,
+                            ]
+                        )
+                        raw += np.where(
+                            difference > style.contour_depth_min,
+                            np.minimum(
+                                (difference - style.contour_depth_min)
+                                / max(style.contour_depth_max - style.contour_depth_min, 1e-9),
+                                1.0,
+                            ),
+                            0.0,
+                        )
+            values.append(np.clip(
+                (raw - contour_low) / max(contour_high - contour_low, 1e-9),
+                0.0, 1.0,
+            ))
+        if style.contour_kernel in (3, 4):
+            center_value = values[0]
+            core = np.where(
+                center_value > 0.0,
+                center_value * np.float32(1.5),
+                center_value,
+            )
+        else:
+            stacked = np.stack(values, axis=0)
+            active = np.sum(stacked > 0.0, axis=0)
+            core = np.where(active >= 6, np.sum(stacked, axis=0) / 6.0, stacked[4])
         contour_opacity[contour_inner:height - contour_inner,
                         contour_inner:width - contour_inner] = np.clip(core, 0.0, 1.0)
 
@@ -938,7 +1321,10 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
     rgba = np.empty((height, width, 4), dtype=np.uint8)
     rgba[..., :3] = np.clip(np.rint(rgb * 255.0), 0.0, 255.0).astype(np.uint8)
     rgba[..., 3] = np.clip(np.rint(alpha * 255.0), 0.0, 255.0).astype(np.uint8)
-    return RenderedImage(width, height, rgba.tobytes(), style.background)
+    image = RenderedImage(width, height, rgba.tobytes(), style.background)
+    return _expand_cropped_image(
+        image, full_width, full_height, crop_x0, crop_y0
+    )
 
 
 def render(scene: RenderScene, view: ViewSnapshot, style: IllustrationStyle,
@@ -954,23 +1340,102 @@ def _png_chunk(kind: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
 
 
-def encode_png(image: RenderedImage, transparent: bool = True) -> bytes:
-    """Encode an RGBA image as PNG using only Python's standard library."""
+def _png_scanlines(image: RenderedImage, transparent: bool):
+    """Yield PNG scanlines without constructing another full-frame image."""
 
-    rgba = image.composited_rgba(transparent=transparent)
     row_bytes = image.width * 4
-    compressor = zlib.compressobj(6)
-    compressed = bytearray()
+    if transparent:
+        for row in range(image.height):
+            start = row * row_bytes
+            yield b"\x00" + image.rgba[start:start + row_bytes]
+        return
+
+    br, bg, bb = (
+        max(0, min(255, int(round(channel * 255.0))))
+        for channel in image.background
+    )
+    if _np is not None:
+        source = _np.frombuffer(image.rgba, dtype=_np.uint8).reshape(
+            image.height, image.width, 4
+        )
+        background = _np.asarray((br, bg, bb), dtype=_np.uint16)
+        for y0 in range(0, image.height, 256):
+            y1 = min(image.height, y0 + 256)
+            tile = source[y0:y1]
+            alpha = tile[..., 3].astype(_np.uint16)
+            inverse = 255 - alpha
+            output = _np.empty(tile.shape, dtype=_np.uint8)
+            output[..., :3] = (
+                (
+                    tile[..., :3].astype(_np.uint16) * alpha[..., None]
+                    + background * inverse[..., None]
+                )
+                // 255
+            ).astype(_np.uint8)
+            output[..., 3] = 255
+            data = output.tobytes()
+            for row in range(y1 - y0):
+                start = row * row_bytes
+                yield b"\x00" + data[start:start + row_bytes]
+        return
+
     for row in range(image.height):
         start = row * row_bytes
-        # Feed one row at a time so an 8000x8000 export does not create a
-        # second full-frame scanline buffer before compression.
-        compressed.extend(compressor.compress(b"\x00" + rgba[start:start + row_bytes]))
+        source = image.rgba[start:start + row_bytes]
+        output = bytearray(row_bytes)
+        for index in range(0, row_bytes, 4):
+            alpha = source[index + 3]
+            inverse = 255 - alpha
+            output[index] = (source[index] * alpha + br * inverse) // 255
+            output[index + 1] = (
+                source[index + 1] * alpha + bg * inverse
+            ) // 255
+            output[index + 2] = (
+                source[index + 2] * alpha + bb * inverse
+            ) // 255
+            output[index + 3] = 255
+        yield b"\x00" + bytes(output)
+
+
+def _compressed_png_data(image: RenderedImage, transparent: bool):
+    compressor = zlib.compressobj(_PNG_COMPRESSION_LEVEL)
+    compressed = bytearray()
+    for scanline in _png_scanlines(image, transparent):
+        compressed.extend(compressor.compress(scanline))
     compressed.extend(compressor.flush())
+    return bytes(compressed)
+
+
+def encode_png(image: RenderedImage, transparent: bool = True) -> bytes:
+    """Encode an RGBA image as a lossless PNG."""
+
+    compressed = _compressed_png_data(image, transparent)
     header = struct.pack(">IIBBBBB", image.width, image.height, 8, 6, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", header) + _png_chunk(b"IDAT", bytes(compressed)) + _png_chunk(b"IEND", b"")
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", header)
+        + _png_chunk(b"IDAT", compressed)
+        + _png_chunk(b"IEND", b"")
+    )
 
 
 def save_png(path: str, image: RenderedImage, transparent: bool = True) -> None:
+    """Write a lossless PNG while keeping high-resolution memory bounded."""
+
+    header = struct.pack(
+        ">IIBBBBB", image.width, image.height, 8, 6, 0, 0, 0
+    )
     with open(path, "wb") as output:
-        output.write(encode_png(image, transparent=transparent))
+        output.write(b"\x89PNG\r\n\x1a\n")
+        output.write(_png_chunk(b"IHDR", header))
+        compressor = zlib.compressobj(_PNG_COMPRESSION_LEVEL)
+        compressed = bytearray()
+        for scanline in _png_scanlines(image, transparent):
+            compressed.extend(compressor.compress(scanline))
+            if len(compressed) >= _PNG_IDAT_CHUNK_SIZE:
+                output.write(_png_chunk(b"IDAT", bytes(compressed)))
+                compressed.clear()
+        compressed.extend(compressor.flush())
+        if compressed:
+            output.write(_png_chunk(b"IDAT", bytes(compressed)))
+        output.write(_png_chunk(b"IEND", b""))

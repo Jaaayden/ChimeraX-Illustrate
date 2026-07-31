@@ -12,22 +12,29 @@ ChimeraX camera. Parameter changes after capture update the preview after a
 short debounce.
 </p>
 <p>
-The <b>一键链配色</b> button colors all open atomic models by chain, applies
-chain-relative element shades, hides hydrogens, and sets a white background,
-soft lighting, and ChimeraX silhouettes. Click <b>捕获当前场景</b> after
+The color-preset menu provides Classic Chains, Cool/Warm Complex,
+Protein Blue/Nucleic Orange, MotM Spectrum, and Monochrome Blues.
+Presets color open atomic models by chain or molecule type, apply
+element-relative shades, hide hydrogens, and set a white background, soft
+lighting, and ChimeraX silhouettes. Click <b>Capture Current Scene</b> after
 coloring to refresh the Illustrate snapshot.
 </p>
 <p>
 The default contour level is 4, matching the reference Illustrate input;
 levels 1–3 remain available for sharper outlines. The default shadow floor and
-residue-number difference also follow that reference style. The output-size controls are arranged in one
-row, and <b>恢复默认参数</b> restores preview size, export size, style values,
+residue-number difference also follow that reference style. Output-size
+controls are arranged in one row, while style parameters are grouped into
+three columns for contours, boundaries, and atoms/shadows/fog.
+<b>Reset Defaults</b> restores preview size, export size, style values,
 shadow, transparency, and contour level without clearing the captured scene.
+The interface starts in English; use the <b>中文</b> button to switch between
+English and Chinese.
 </p>
 <p>
-The preview is capped at 320 pixels high and the style controls are in a
-bounded scroll area, so opening the tool does not force the ChimeraX window
-off-screen. The <b>参数说明</b> button and control tooltips describe each
+The default preview edge is 512 pixels, selected as a balance between readable
+detail and interactive updates, and the preview display remains height-bounded
+so opening the tool does not force the ChimeraX window off-screen. The
+<b>Parameter Help</b> button and control tooltips describe each
 parameter, practical ranges, and how larger or smaller values affect the image.
 Export width and height accept 2–8000 pixels. The original Fortran program
 used a fixed 3000-pixel frame buffer; this bundle uses dynamic NumPy buffers
@@ -35,7 +42,12 @@ and scales the pixel-based contour, boundary, and shadow neighborhoods from a
 1200-pixel reference so changing the export size does not substantially change
 the visual style. Exports above 4096 pixels are processed in row tiles to avoid
 constructing several full-frame temporary arrays at once; larger images still
-require more time and memory.
+require more time and memory. Raster and shadow results are cached, transparent
+regions are excluded from post-processing, sphere rasterization is vectorized,
+and large soft-shadow passes use multiple CPU cores. PNG compositing,
+compression, and writing are streamed in the background so the ChimeraX
+interface remains responsive and high-resolution exports avoid a second
+full-frame RGBA allocation.
 </p>
 <p>
 The output uses atomic spheres even when the source representation is cartoon

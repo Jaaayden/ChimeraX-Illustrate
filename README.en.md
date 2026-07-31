@@ -13,12 +13,15 @@ This repository contains only the plugin software, documentation, tests, and lic
 ## Features
 
 - Captures molecular content represented by visible atoms, cartoons, or molecular surfaces, including the corresponding colors, atomic radii, and grouping metadata.
-- Provides a one-click chain-palette button that colors current atomic models and prepares an illustration-oriented display environment.
+- Provides five illustration-oriented presets that color current atomic models by chain or molecule type and prepare the display environment.
 - Captures the current ChimeraX camera and view; the renderer uses an Illustrate-style orthographic model.
-- Low-resolution preview with debounced updates after parameter changes.
+- A 512-pixel default preview with debounced updates after parameter changes.
 - Controls for contours, subunit boundaries, residue boundaries, soft shadows, and fog.
+- English is the default interface language, with one-click switching to Chinese.
+- Parameters are grouped into three columns for contours, boundaries, and atoms/shadows/fog.
 - Transparent or opaque PNG export.
 - Output width and height from 2 to 8000 pixels; large exports use tiled processing.
+- Raster/shadow caches, active-region cropping, vectorized NumPy rasterization, and multicore shadow processing accelerate previews and high-resolution exports; PNG compositing, compression, and writing are streamed off the ChimeraX UI thread.
 - Built-in parameter explanations, practical ranges, and a reset-to-default action.
 
 The rendered output still consists of atomic spheres. Cartoon and molecular-surface meshes are not rasterized directly; the plugin collects the atoms associated with visible cartoon residues or surface patches and converts them to Illustrate-style spheres. Entirely hidden models remain excluded.
@@ -52,18 +55,26 @@ Fortran and gfortran are not required. NumPy, Qt, and the ChimeraX APIs are supp
 
 1. Open a structure in ChimeraX and display the desired parts as atoms, cartoons, or molecular surfaces.
 2. Adjust colors, visibility, and the ChimeraX camera.
-3. Run `illustrate` and optionally click **一键链配色** to apply the built-in chain palette.
-4. Click **捕获当前场景**.
+3. Run `illustrate`, optionally choose a color preset, and click **Apply Colors**.
+4. Click **Capture Current Scene**.
 5. Adjust the parameters and inspect the preview.
 6. Set the output dimensions and export a PNG.
 
 Capture the scene again after changing the ChimeraX camera. Parameter changes affect the captured snapshot and do not modify the original ChimeraX model.
 
-## Quick chain coloring
+## Color presets
 
-The **一键链配色** button in the Illustrate tool assigns a consistent palette across the chains in the currently open atomic models. Common elements receive lightness variations of the chain color, and the action also sets a white background, soft lighting, silhouettes, and hidden hydrogens. Click **捕获当前场景** afterward to refresh the preview.
+The tool provides five presets:
 
-The repository retains [`chimerax-chain-palette.py`](chimerax-chain-palette.py) as a command-line compatibility entry point. To use it, run:
+- **Classic Chains** preserves the original soft chain palette.
+- **Cool / Warm Complex** alternates cool and warm colors for receptor/partner and multisubunit assemblies.
+- **Protein Blue / Nucleic Orange** distinguishes proteins, nucleic acids, ligands, ions, and solvent by molecule type.
+- **MotM Spectrum** assigns blue, green, purple, magenta, and warm colors in chain order.
+- **Monochrome Blues** uses related blue shades for repeated chains or symmetric assemblies.
+
+The presets are inspired by the [flat colors and black outlines](https://pdb101.rcsb.org/motm/motm-goodsell) described by RCSB PDB-101 and by component contrasts in its [Ribosomal Subunits](https://pdb101.rcsb.org/motm/10) and [Expressome](https://pdb101.rcsb.org/motm/253) illustrations; they are not exact color copies of any individual artwork. A PDB file generally lacks enough functional semantics for reliable automatic domain assignment, so all presets except **Protein Blue / Nucleic Orange** assign colors in chain order. Applying a preset also sets a white background, soft lighting, ChimeraX silhouettes, and hidden hydrogens. Capture the scene again afterward.
+
+The repository retains [`chimerax-chain-palette.py`](chimerax-chain-palette.py) as a command-line compatibility entry point for **Classic Chains**. To use it, run:
 
 ```text
 runscript /absolute/path/to/chimerax-chain-palette.py

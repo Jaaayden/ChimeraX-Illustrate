@@ -17,6 +17,7 @@ from render import (
     _contour_thresholds,
     encode_png,
     render,
+    save_png,
     scale_style_for_output,
 )
 
@@ -64,6 +65,34 @@ class RenderTests(unittest.TestCase):
         reference = render_module._render_python(self.scene, view, style, 96, 96)
         self.assertIn(255, accelerated.rgba[3::4])
         self.assertIn(255, reference.rgba[3::4])
+        self.assertEqual(accelerated.rgba, reference.rgba)
+
+    def test_sphere_samples_are_cached_by_radius(self):
+        render_module._sphere_points.cache_clear()
+        first = render_module._sphere_points(12.5)
+        second = render_module._sphere_points(12.5)
+        self.assertIs(first, second)
+        self.assertGreater(len(first), 0)
+
+    def test_numpy_opaque_compositing_matches_integer_reference(self):
+        if render_module._np is None:
+            self.skipTest("NumPy is not available")
+        image = render(self.scene, self.view, self.style, 24, 24)
+        accelerated = image.composited_rgba(transparent=False)
+        expected = bytearray(len(image.rgba))
+        background = tuple(
+            int(round(channel * 255.0)) for channel in image.background
+        )
+        for index in range(0, len(image.rgba), 4):
+            alpha = image.rgba[index + 3]
+            inverse = 255 - alpha
+            for channel in range(3):
+                expected[index + channel] = (
+                    image.rgba[index + channel] * alpha
+                    + background[channel] * inverse
+                ) // 255
+            expected[index + 3] = 255
+        self.assertEqual(accelerated, bytes(expected))
 
     def test_contours_darken_rgb_toward_black(self):
         style = IllustrationStyle(
@@ -107,6 +136,19 @@ class RenderTests(unittest.TestCase):
                     start = row * (stride + 1) + 1
                     pixels.extend(raw[start:start + stride])
                 self.assertTrue(all(alpha == 255 for alpha in pixels[3::4]))
+
+    def test_streamed_png_matches_encoded_pixels(self):
+        image = render(self.scene, self.view, self.style, 24, 24)
+        for transparent in (True, False):
+            expected = encode_png(image, transparent=transparent)
+            with tempfile.NamedTemporaryFile(suffix=".png") as output:
+                save_png(output.name, image, transparent=transparent)
+                output.seek(0)
+                streamed = output.read()
+            self.assertEqual(
+                self._decode_png_rgba(streamed),
+                self._decode_png_rgba(expected),
+            )
 
     def test_empty_scene_is_a_valid_image(self):
         image = render(RenderScene(()), self.view, self.style, 8, 8)
@@ -206,6 +248,29 @@ class RenderTests(unittest.TestCase):
         )
         self.assertIn(255, low.rgba[3::4])
         self.assertIn(255, high.rgba[3::4])
+
+    @staticmethod
+    def _decode_png_rgba(png):
+        width, height = struct.unpack(">II", png[16:24])
+        compressed = bytearray()
+        offset = 8
+        while offset < len(png):
+            size = struct.unpack(">I", png[offset:offset + 4])[0]
+            kind = png[offset + 4:offset + 8]
+            data = png[offset + 8:offset + 8 + size]
+            offset += size + 12
+            if kind == b"IDAT":
+                compressed.extend(data)
+        raw = zlib.decompress(bytes(compressed))
+        row_bytes = width * 4
+        pixels = bytearray()
+        for row in range(height):
+            start = row * (row_bytes + 1)
+            self_filter = raw[start]
+            if self_filter != 0:
+                raise AssertionError("unexpected PNG filter")
+            pixels.extend(raw[start + 1:start + 1 + row_bytes])
+        return bytes(pixels)
 
 
 if __name__ == "__main__":
