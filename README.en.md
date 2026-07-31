@@ -28,26 +28,49 @@ The rendered output still consists of atomic spheres. Cartoon and molecular-surf
 
 ## Installation
 
-### ChimeraX graphical interface
+### Recommended: install from source (macOS / Linux)
 
-1. Download or build the project wheel.
-2. In ChimeraX, open `Tools → More Tools... → Install from file`.
-3. Select the wheel file and restart ChimeraX.
-4. Run `illustrate` to open the tool window.
+First open a system terminal and clone the repository into your home directory:
 
-### From source
+```bash
+cd ~
+git clone https://github.com/Jaaayden/ChimeraX-Illustrate.git
+```
 
-Run this in the ChimeraX command line:
+Then open ChimeraX and run this in the ChimeraX command line:
 
 ```text
-devel install /absolute/path/to/this/repository editable true
+devel install ~/ChimeraX-Illustrate
 ```
+
+Restart ChimeraX after installation, then run `illustrate` to open the tool window.
+
+This project uses the `bundle_info.xml` build format. Do not append `editable true`; with ChimeraX 1.12, that may register the tool metadata while leaving the `illustrate` module unavailable after restart, resulting in `No module named 'illustrate'`.
+
+To update an existing checkout, run this in the system terminal:
+
+```bash
+cd ~/ChimeraX-Illustrate
+git pull
+```
+
+Return to ChimeraX, run `devel install ~/ChimeraX-Illustrate` again, and restart ChimeraX.
 
 Build a wheel with:
 
 ```text
-devel build /absolute/path/to/this/repository
+devel build ~/ChimeraX-Illustrate
 ```
+
+### Install a wheel file
+
+If you have downloaded or built a `.whl` file, install it from the ChimeraX command line with `toolshed install`. For example, after placing the wheel in `~/Downloads`, run:
+
+```text
+toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.19-py3-none-any.whl
+```
+
+Restart ChimeraX after installation, then run `illustrate`.
 
 Fortran and gfortran are not required. NumPy, Qt, and the ChimeraX APIs are supplied by ChimeraX.
 

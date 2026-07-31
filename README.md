@@ -28,26 +28,49 @@ Illustrate for ChimeraX 是一个 ChimeraX bundle，将当前 ChimeraX 场景转
 
 ## 安装
 
-### ChimeraX 图形界面
+### 推荐：从源码安装（macOS / Linux）
 
-1. 下载或构建本项目的 `.whl` 文件。
-2. 在 ChimeraX 中打开 `Tools → More Tools... → Install from file`。
-3. 选择 wheel 文件并重启 ChimeraX。
-4. 在命令行输入 `illustrate` 打开工具窗口。
+首先打开系统终端，将仓库克隆到用户主目录：
 
-### 从源码安装
+```bash
+cd ~
+git clone https://github.com/Jaaayden/ChimeraX-Illustrate.git
+```
 
-在 ChimeraX 命令行执行：
+然后打开 ChimeraX，在 ChimeraX 命令行中执行：
 
 ```text
-devel install /absolute/path/to/this/repository editable true
+devel install ~/ChimeraX-Illustrate
 ```
+
+安装完成后重启 ChimeraX，再输入 `illustrate` 打开工具窗口。
+
+本项目使用 `bundle_info.xml` 构建格式。请勿添加 `editable true`；在 ChimeraX 1.12 中，这可能导致工具信息已注册，但重启后无法导入 `illustrate` 模块，并出现 `No module named 'illustrate'`。
+
+更新到最新版时，在系统终端执行：
+
+```bash
+cd ~/ChimeraX-Illustrate
+git pull
+```
+
+然后回到 ChimeraX，重新执行 `devel install ~/ChimeraX-Illustrate` 并重启。
 
 构建 wheel：
 
 ```text
-devel build /absolute/path/to/this/repository
+devel build ~/ChimeraX-Illustrate
 ```
+
+### 安装 wheel 文件
+
+如果已经下载或构建了 `.whl` 文件，可在 ChimeraX 命令行中使用 `toolshed install` 安装。例如，将 wheel 放在 `~/Downloads` 后执行：
+
+```text
+toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.19-py3-none-any.whl
+```
+
+安装后重启 ChimeraX，再输入 `illustrate`。
 
 不要求安装 Fortran 或 gfortran。NumPy、Qt 和 ChimeraX API 由 ChimeraX 提供。
 
