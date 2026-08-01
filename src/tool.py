@@ -296,14 +296,14 @@ PALETTE_LABELS = {
     "en": {
         "classic": "Classic Chains",
         "cool_warm": "Cool / Warm Complex",
-        "ribosome": "Protein Blue / Nucleic Orange",
+        "ribosome": "Nucleic Base Contrast",
         "functional": "MotM Spectrum",
         "monochrome": "Monochrome Blues",
     },
     "zh": {
         "classic": "经典链配色",
         "cool_warm": "冷暖复合物",
-        "ribosome": "蛋白蓝 / 核酸橙",
+        "ribosome": "核酸碱基对比",
         "functional": "月度分子光谱",
         "monochrome": "单色蓝系列",
     },

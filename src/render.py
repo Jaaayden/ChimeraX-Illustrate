@@ -343,7 +343,10 @@ def _outline_opacity(depth: List[List[float]], atom_map: List[List[int]], atoms:
     width = len(depth)
     height = len(depth[0]) if width else 0
     step = max(1, int(round(style.raster_scale)))
-    margin = 2 * step
+    # Kernel 2 is sampled one step around (x, y) and inspects another two
+    # steps around each sample.  Count-based kernels use (x, y) directly, so
+    # the usual two-step group-boundary margin is sufficient for them.
+    margin = (3 if style.contour_kernel == 2 else 2) * step
     if x < margin or y < margin or x >= width - margin or y >= height - margin:
         return 0.0
 
@@ -775,7 +778,7 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
     output = bytearray(width * height * 4)
     tile_rows = 512
     neighborhood_step = max(1, int(round(style.raster_scale)))
-    neighborhood_margin = 2 * neighborhood_step
+    neighborhood_margin = (3 if style.contour_kernel == 2 else 2) * neighborhood_step
     kernel_one = (
         (-0.8, -1.0, -0.8),
         (-1.0, 7.2, -1.0),
@@ -1206,7 +1209,7 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
                 & (np.abs(current_residue - neighbor_residue) > style.residue_difference)
             )
     interior = np.zeros((height, width), dtype=bool)
-    neighborhood_margin = 2 * neighborhood_step
+    neighborhood_margin = (3 if style.contour_kernel == 2 else 2) * neighborhood_step
     if height > 2 * neighborhood_margin and width > 2 * neighborhood_margin:
         interior[neighborhood_margin:height - neighborhood_margin,
                  neighborhood_margin:width - neighborhood_margin] = True

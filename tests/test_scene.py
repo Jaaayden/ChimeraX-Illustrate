@@ -156,6 +156,15 @@ class SceneCaptureTests(unittest.TestCase):
         self.assertEqual(scene.atoms[0].color, (0.0, 1.0, 0.0))
         self.assertEqual(warning, "")
 
+    def test_palette_atom_colors_override_cartoon_color(self):
+        atom = FakeAtom(display=False, ribbon_display=True)
+        session = FakeSession([FakeModel([atom])])
+        session._illustrate_prefer_atom_colors = True
+        scene, _view, _style, warning = capture_scene(session, 80, 80)
+        self.assertEqual(len(scene.atoms), 1)
+        self.assertEqual(scene.atoms[0].color, (1.0, 0.0, 0.0))
+        self.assertEqual(warning, "")
+
     def test_nonpolymer_ribbon_flag_does_not_capture_hidden_atoms(self):
         atom = FakeAtom(
             display=False,
@@ -193,6 +202,17 @@ class SceneCaptureTests(unittest.TestCase):
         scene, _view, _style, warning = capture_scene(session, 80, 80)
         self.assertEqual(len(scene.atoms), 1)
         self.assertEqual(scene.atoms[0].color, (0.0, 0.0, 1.0))
+        self.assertEqual(warning, "")
+
+    def test_palette_atom_colors_override_surface_color(self):
+        atom = FakeAtom(display=False)
+        model = FakeModel([atom])
+        surface = FakeSurface([atom])
+        session = FakeSession([model, surface])
+        session._illustrate_prefer_atom_colors = True
+        scene, _view, _style, warning = capture_scene(session, 80, 80)
+        self.assertEqual(len(scene.atoms), 1)
+        self.assertEqual(scene.atoms[0].color, (1.0, 0.0, 0.0))
         self.assertEqual(warning, "")
 
     def test_hidden_surface_does_not_capture_atoms(self):

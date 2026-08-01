@@ -7,11 +7,24 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.palette import apply_chain_palette, available_palette_presets
 
 
+class FakeElement:
+    def __init__(self, name="C", number=6):
+        self.name = name
+        self.number = number
+
+
+class FakeAtom:
+    def __init__(self, name, element=None):
+        self.name = name
+        self.element = element or FakeElement()
+
+
 class FakeResidue:
-    def __init__(self, chain_id, name="ALA"):
+    def __init__(self, chain_id, name="ALA", atom_names=()):
         self.chain_id = chain_id
         self.name = name
         self.polymer_type = None
+        self.atoms = tuple(FakeAtom(atom_name) for atom_name in atom_names)
 
 
 class FakeStructure:
@@ -82,6 +95,7 @@ class PaletteTests(unittest.TestCase):
 
     def test_palette_reports_when_no_atomic_model_is_open(self):
         session = FakeSession([])
+        session._illustrate_prefer_atom_colors = True
         commands = []
         assignments = apply_chain_palette(
             session,
@@ -91,6 +105,7 @@ class PaletteTests(unittest.TestCase):
         self.assertEqual(assignments, ())
         self.assertEqual(commands, [])
         self.assertTrue(session.logger.warnings)
+        self.assertFalse(session._illustrate_prefer_atom_colors)
 
     def test_all_documented_presets_are_available(self):
         self.assertEqual(
@@ -113,9 +128,14 @@ class PaletteTests(unittest.TestCase):
             commands,
         )
 
-    def test_ribosome_preset_colors_detected_molecule_types(self):
+    def test_ribosome_preset_varies_chains_and_contrasts_nucleobases(self):
         session = FakeSession([
-            FakeStructure("1", [("A", "ALA"), ("R", "A"), ("L", "ATP")])
+            FakeStructure("1", [
+                ("A", "ALA"),
+                ("B", "GLY"),
+                ("I", "DA", ("P", "C1'", "N9", "C8")),
+                ("J", "DC", ("P", "C1'", "N1", "C2", "O2")),
+            ])
         ])
         commands = []
         assignments = apply_chain_palette(
@@ -124,19 +144,40 @@ class PaletteTests(unittest.TestCase):
             structure_type=FakeStructure,
             preset="ribosome",
         )
-        self.assertEqual(len(assignments), 3)
+        self.assertEqual(len(assignments), 4)
         self.assertIn(
-            "color (#1 & :ALA) #70A5F5 target acs halfbond true",
+            'color #1 & ::chain_id=="A" #70A5F5 target acs halfbond true',
             commands,
         )
         self.assertIn(
-            "color (#1 & :A) #F3AE73 target acs halfbond true",
+            'color #1 & ::chain_id=="B" #F78C90 target acs halfbond true',
             commands,
         )
         self.assertIn(
-            "color (#1 & :ATP) #E7C66A target acs halfbond true",
+            'color #1 & ::chain_id=="I" #F4B3C1 target acs halfbond true',
             commands,
         )
+        self.assertIn(
+            'color #1 & ::chain_id=="J" #F3AE73 target acs halfbond true',
+            commands,
+        )
+        base_commands = [
+            command for command in commands if "#F2EFE8 target as" in command
+        ]
+        self.assertEqual(len(base_commands), 2)
+        self.assertIn(
+            'color (#1 & ::chain_id=="I" & :DA & @C8,N9) '
+            '#F2EFE8 target as halfbond true',
+            base_commands,
+        )
+        self.assertIn(
+            'color (#1 & ::chain_id=="J" & :DC & @C2,N1,O2) '
+            '#F2EFE8 target as halfbond true',
+            base_commands,
+        )
+        self.assertNotIn("C1'", "\n".join(base_commands))
+        self.assertNotIn("@P", "\n".join(base_commands))
+        self.assertTrue(session._illustrate_prefer_atom_colors)
 
     def test_unknown_preset_is_rejected(self):
         session = FakeSession([FakeStructure("1", ["A"])])

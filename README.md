@@ -13,7 +13,7 @@ Illustrate for ChimeraX 是一个 ChimeraX bundle，将当前 ChimeraX 场景转
 ## 主要功能
 
 - 捕获当前显示为 atom、cartoon 或 molecular surface 的分子内容，并读取对应颜色、原子半径和分组信息。
-- 内置五套插图配色方案，可直接为当前原子模型按链或分子类型着色并设置适合插图的显示环境。
+- 内置五套插图配色方案，可直接为当前原子模型按链着色，并可区分核酸骨架与碱基。
 - 捕获当前 ChimeraX 相机和视角；渲染器使用 Illustrate 风格的正交投影模型。
 - 默认 512 像素预览和参数修改后的防抖更新。
 - 轮廓、亚基边界、残基边界、软阴影和雾化控制。
@@ -67,7 +67,7 @@ devel build ~/ChimeraX-Illustrate
 如果已经下载或构建了 `.whl` 文件，可在 ChimeraX 命令行中使用 `toolshed install` 安装。例如，将 wheel 放在 `~/Downloads` 后执行：
 
 ```text
-toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.19-py3-none-any.whl
+toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.20-py3-none-any.whl
 ```
 
 安装后重启 ChimeraX，再输入 `illustrate`。
@@ -91,11 +91,11 @@ toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.19-py3-none-any.whl
 
 - **经典链配色**：原有的 Illustrate 柔和链配色，兼容已有工作流。
 - **冷暖复合物**：冷色与暖色交替，适合受体/伴侣或多亚基复合物。
-- **蛋白蓝 / 核酸橙**：按分子类型区分蛋白、核酸、配体、离子和溶剂。
+- **核酸碱基对比**：蛋白链和核酸链分别使用不同的柔和颜色；核酸糖-磷酸骨架保留链色，碱基统一使用浅暖灰白色，以突出内部配对区域。无论当前显示为 atom、cartoon 还是 surface，捕获时都会保留这种逐原子对比。
 - **月度分子光谱**：蓝、绿、紫、洋红和暖色依次分配给链。
 - **单色蓝系列**：使用多级蓝色表现重复链或对称装配体。
 
-这些方案借鉴了 RCSB PDB-101 *Molecule of the Month* 中介绍的[扁平颜色与黑色轮廓](https://pdb101.rcsb.org/motm/motm-goodsell)，以及[核糖体](https://pdb101.rcsb.org/motm/10)和 [Expressome](https://pdb101.rcsb.org/motm/253) 插图中的分子组分对比方法，但不是对某一幅作品的逐色复制。PDB 文件通常不包含足够的功能语义，因此除“蛋白蓝 / 核酸橙”外，其余方案按链顺序分配颜色，不会猜测功能域。应用配色还会设置白色背景、柔和光照、ChimeraX 轮廓并隐藏氢原子；随后点击“捕获当前场景”更新预览。
+这些方案借鉴了 RCSB PDB-101 *Molecule of the Month* 中介绍的[扁平颜色与黑色轮廓](https://pdb101.rcsb.org/motm/motm-goodsell)，以及[核糖体](https://pdb101.rcsb.org/motm/10)和 [Expressome](https://pdb101.rcsb.org/motm/253) 插图中的分子组分对比方法，但不是对某一幅作品的逐色复制。配色方案按链顺序分配颜色，不会猜测功能域；“核酸碱基对比”会额外根据标准 DNA/RNA 原子名称区分糖-磷酸骨架和碱基。应用配色还会设置白色背景、柔和光照、ChimeraX 轮廓并隐藏氢原子；随后点击“捕获当前场景”更新预览。
 
 仓库仍保留兼容脚本 [`chimerax-chain-palette.py`](chimerax-chain-palette.py)，它使用“经典链配色”。需要从命令行使用时，在 ChimeraX 中运行：
 

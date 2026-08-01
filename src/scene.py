@@ -244,8 +244,9 @@ def _atom_scene_coord(atom):
     return coord if len(coord) == 3 else None
 
 
-def _representation_color(atom, atom_displayed, surface_color, cartoon_displayed):
-    if atom_displayed:
+def _representation_color(atom, atom_displayed, surface_color,
+                          cartoon_displayed, prefer_atom_color=False):
+    if atom_displayed or prefer_atom_color:
         return _as_color(getattr(atom, "color", None))
     if surface_color is not None:
         return surface_color
@@ -263,6 +264,9 @@ def capture_scene(session, width: int = 800, height: int = 800):
 
     atoms: List[AtomRecord] = []
     surface_colors = _surface_atom_colors(session)
+    prefer_atom_colors = bool(
+        getattr(session, "_illustrate_prefer_atom_colors", False)
+    )
     for model in _scene_models(session):
         if not _model_is_visible(model):
             continue
@@ -281,7 +285,8 @@ def capture_scene(session, width: int = 800, height: int = 800):
             atoms.append(AtomRecord(
                 coord=coord,
                 color=_representation_color(
-                    atom, atom_displayed, surface_color, cartoon_displayed
+                    atom, atom_displayed, surface_color, cartoon_displayed,
+                    prefer_atom_colors,
                 ),
                 radius=_atom_radius(atom),
                 subunit="%s:%s" % (_model_name(model), _chain_id(atom)),

@@ -13,7 +13,7 @@ This repository contains only the plugin software, documentation, tests, and lic
 ## Features
 
 - Captures molecular content represented by visible atoms, cartoons, or molecular surfaces, including the corresponding colors, atomic radii, and grouping metadata.
-- Provides five illustration-oriented presets that color current atomic models by chain or molecule type and prepare the display environment.
+- Provides five illustration-oriented presets that color current atomic models by chain, including a nucleic backbone/base contrast mode.
 - Captures the current ChimeraX camera and view; the renderer uses an Illustrate-style orthographic model.
 - A 512-pixel default preview with debounced updates after parameter changes.
 - Controls for contours, subunit boundaries, residue boundaries, soft shadows, and fog.
@@ -67,7 +67,7 @@ devel build ~/ChimeraX-Illustrate
 If you have downloaded or built a `.whl` file, install it from the ChimeraX command line with `toolshed install`. For example, after placing the wheel in `~/Downloads`, run:
 
 ```text
-toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.19-py3-none-any.whl
+toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.20-py3-none-any.whl
 ```
 
 Restart ChimeraX after installation, then run `illustrate`.
@@ -91,11 +91,11 @@ The tool provides five presets:
 
 - **Classic Chains** preserves the original soft chain palette.
 - **Cool / Warm Complex** alternates cool and warm colors for receptor/partner and multisubunit assemblies.
-- **Protein Blue / Nucleic Orange** distinguishes proteins, nucleic acids, ligands, ions, and solvent by molecule type.
+- **Nucleic Base Contrast** gives every protein and nucleic-acid chain a different soft color, retains each chain color on the nucleic sugar-phosphate backbone, and uses pale warm gray for the nucleobases to emphasize the paired interior. The atom-level contrast is retained when capturing atom, cartoon, or surface representations.
 - **MotM Spectrum** assigns blue, green, purple, magenta, and warm colors in chain order.
 - **Monochrome Blues** uses related blue shades for repeated chains or symmetric assemblies.
 
-The presets are inspired by the [flat colors and black outlines](https://pdb101.rcsb.org/motm/motm-goodsell) described by RCSB PDB-101 and by component contrasts in its [Ribosomal Subunits](https://pdb101.rcsb.org/motm/10) and [Expressome](https://pdb101.rcsb.org/motm/253) illustrations; they are not exact color copies of any individual artwork. A PDB file generally lacks enough functional semantics for reliable automatic domain assignment, so all presets except **Protein Blue / Nucleic Orange** assign colors in chain order. Applying a preset also sets a white background, soft lighting, ChimeraX silhouettes, and hidden hydrogens. Capture the scene again afterward.
+The presets are inspired by the [flat colors and black outlines](https://pdb101.rcsb.org/motm/motm-goodsell) described by RCSB PDB-101 and by component contrasts in its [Ribosomal Subunits](https://pdb101.rcsb.org/motm/10) and [Expressome](https://pdb101.rcsb.org/motm/253) illustrations; they are not exact color copies of any individual artwork. Presets assign colors in chain order instead of guessing functional domains. **Nucleic Base Contrast** additionally distinguishes sugar-phosphate backbone atoms from nucleobase atoms using standard DNA/RNA atom names. Applying a preset also sets a white background, soft lighting, ChimeraX silhouettes, and hidden hydrogens. Capture the scene again afterward.
 
 The repository retains [`chimerax-chain-palette.py`](chimerax-chain-palette.py) as a command-line compatibility entry point for **Classic Chains**. To use it, run:
 

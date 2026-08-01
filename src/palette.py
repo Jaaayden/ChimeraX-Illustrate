@@ -39,13 +39,22 @@ CHAIN_PALETTES = {
     ),
 }
 
-MOLECULE_TYPE_COLORS = {
-    "protein": "#70A5F5",
-    "nucleic": "#F3AE73",
-    "ligand": "#E7C66A",
-    "ions": "#62C878",
-    "solvent": "#B9DDE8",
-}
+NUCLEIC_BASE_COLOR = "#F2EFE8"
+
+# Sugar-phosphate atoms retain the color assigned to their chain.  Every
+# other non-hydrogen atom in a nucleic residue belongs to the nucleobase and
+# receives the shared pale color above.  Star aliases cover older PDB atom
+# naming conventions.
+_NUCLEIC_BACKBONE_ATOMS = frozenset((
+    "P", "OP1", "OP2", "OP3", "O1P", "O2P", "O3P",
+    "O5'", "C5'", "C4'", "O4'", "C3'", "O3'", "C2'", "O2'", "C1'",
+    "O5*", "C5*", "C4*", "O4*", "C3*", "O3*", "C2*", "O2*", "C1*",
+))
+_STANDARD_NUCLEIC_BASE_ATOMS = frozenset((
+    "C2", "C4", "C5", "C6", "C7", "C8",
+    "N1", "N2", "N3", "N4", "N6", "N7", "N9",
+    "O2", "O4", "O6",
+))
 
 KNOWN_CHAIN_SETS = {
     frozenset(("A", "B", "G", "R")): {
@@ -163,33 +172,94 @@ def _residue_category(residue, residue_type=None):
     return "ligand"
 
 
-def _apply_molecule_type_palette(session, structures, command_runner,
+def _atom_is_hydrogen(atom):
+    element = getattr(atom, "element", None)
+    try:
+        if int(getattr(element, "number", 0)) == 1:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return str(getattr(element, "name", "")).upper() == "H"
+
+
+def _nucleic_base_atom_names(residues):
+    names = set()
+    found_atoms = False
+    for residue in residues:
+        for atom in getattr(residue, "atoms", ()):
+            found_atoms = True
+            name = str(getattr(atom, "name", "")).strip()
+            if (
+                name
+                and name.upper() not in _NUCLEIC_BACKBONE_ATOMS
+                and not _atom_is_hydrogen(atom)
+            ):
+                names.add(name)
+    if not found_atoms:
+        names.update(_STANDARD_NUCLEIC_BASE_ATOMS)
+    return tuple(sorted(names))
+
+
+def _apply_nucleic_base_palette(session, structures, command_runner,
                                  residue_type):
+    """Color every polymer by chain and give nucleobases a pale contrast."""
+
+    palette = CHAIN_PALETTES["classic"]
+    palette_index = 0
     assignments = []
     for structure in structures:
         model_spec = "#" + structure.id_string
-        residue_names = {
-            category: set()
-            for category in ("protein", "nucleic", "ligand", "solvent", "ions")
-        }
+        chain_ids = _chain_ids_in_file_order(structure)
+        known_colors = KNOWN_CHAIN_SETS.get(frozenset(chain_ids), {})
+        if known_colors:
+            palette_index += len(known_colors)
+        residues_by_chain = {chain_id: [] for chain_id in chain_ids}
         for residue in structure.residues:
-            category = _residue_category(residue, residue_type)
-            name = str(getattr(residue, "name", "")).strip()
-            if name:
-                residue_names[category].add(name)
-        for category in ("protein", "nucleic", "ligand", "solvent", "ions"):
-            names = sorted(residue_names[category])
-            if not names:
-                continue
-            base = MOLECULE_TYPE_COLORS[category]
-            # Use the residue names that the plugin actually classified.
-            # Generic ChimeraX selectors such as ``protein`` can omit short,
-            # incomplete, or modified polymers even when their residue type
-            # is known, so they are not reliable enough for this preset.
-            spec = "({} & :{})".format(model_spec, ",".join(names))
-            _color_selection(session, command_runner, spec, base)
+            residues_by_chain.setdefault(residue.chain_id, []).append(residue)
+        for chain_id in chain_ids:
+            if chain_id in known_colors:
+                chain_color = known_colors[chain_id]
+            else:
+                chain_color = palette[palette_index % len(palette)]
+                palette_index += 1
+            chain_spec = _chain_spec(structure, chain_id)
+            _color_selection(session, command_runner, chain_spec, chain_color)
+
+            nucleic_residues = [
+                residue for residue in residues_by_chain.get(chain_id, ())
+                if _residue_category(residue, residue_type) == "nucleic"
+            ]
+            if nucleic_residues:
+                residue_names = sorted({
+                    str(getattr(residue, "name", "")).strip()
+                    for residue in nucleic_residues
+                    if str(getattr(residue, "name", "")).strip()
+                })
+                atom_names = _nucleic_base_atom_names(nucleic_residues)
+                if residue_names and atom_names:
+                    base_spec = "({} & :{} & @{})".format(
+                        chain_spec,
+                        ",".join(residue_names),
+                        ",".join(atom_names),
+                    )
+                    command_runner(
+                        session,
+                        "color {} {} target as halfbond true".format(
+                            base_spec, NUCLEIC_BASE_COLOR
+                        ),
+                    )
+                    shown_id = chain_id if chain_id else "<blank>"
+                    assignments.append(
+                        "{} /{} backbone = {}; bases = {}".format(
+                            model_spec, shown_id, chain_color,
+                            NUCLEIC_BASE_COLOR,
+                        )
+                    )
+                    continue
+
+            shown_id = chain_id if chain_id else "<blank>"
             assignments.append("{} /{} = {}".format(
-                model_spec, category, base
+                model_spec, shown_id, chain_color
             ))
     return assignments
 
@@ -237,13 +307,14 @@ def apply_chain_palette(session, command_runner=None, structure_type=None,
         from chimerax.core.commands import run
         command_runner = run
 
+    session._illustrate_prefer_atom_colors = preset == "ribosome"
     structures = session.models.list(type=structure_type)
     if not structures:
         session.logger.warning("Illustrate palette: no atomic model is open.")
         return ()
 
     if preset == "ribosome":
-        assignments = _apply_molecule_type_palette(
+        assignments = _apply_nucleic_base_palette(
             session, structures, command_runner, residue_type
         )
     else:
@@ -251,6 +322,10 @@ def apply_chain_palette(session, command_runner=None, structure_type=None,
             session, structures, command_runner, preset
         )
 
+    # Cartoon and surface capture normally follows the representation's
+    # overall color.  This preset intentionally contains atom-level color
+    # information (chain-colored backbone versus pale nucleobases), so retain
+    # those atom colors when converting any representation to spheres.
     command_runner(session, "hide H atoms")
     command_runner(session, "set bgColor white")
     command_runner(session, "lighting soft")
