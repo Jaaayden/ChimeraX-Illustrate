@@ -13,9 +13,14 @@ from src.export import (
     check_output_size,
     export_png,
     render_snapshot_to_png,
+)
+from src.render import (
+    AtomRecord,
+    IllustrationStyle,
+    RenderScene,
+    ViewSnapshot,
     view_for_size,
 )
-from src.render import AtomRecord, IllustrationStyle, RenderScene, ViewSnapshot
 from test_scene import FakeAtom, FakeModel, FakeSession
 
 

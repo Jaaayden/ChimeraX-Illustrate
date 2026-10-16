@@ -10,7 +10,7 @@ from chimerax.core.errors import UserError
 from chimerax.core.tools import ToolInstance
 from chimerax.ui import MainToolWindow
 from Qt.QtCore import Qt, QTimer
-from Qt.QtGui import QImage, QPixmap
+from Qt.QtGui import QImage, QPixmap, QValidator
 from Qt.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -36,10 +36,11 @@ from .export import (
     DEFAULT_OUTPUT_WIDTH,
     DEFAULT_PREVIEW_SIZE,
     MAX_OUTPUT_SIZE,
+    MAX_PREVIEW_SIZE,
     MIN_OUTPUT_SIZE,
+    MIN_PREVIEW_SIZE,
     check_output_size,
     render_snapshot_to_png,
-    view_for_size,
 )
 from .i18n import (
     PALETTE_LABELS,
@@ -61,14 +62,52 @@ from .render import (
     RenderedImage,
     ViewSnapshot,
     clear_caches,
-    render,
-    scale_style_for_output,
+    render_scaled,
 )
 from .scene import WARNING_PERSPECTIVE
 from .scene import capture_scene as capture_chimerax_scene
 
 
 DEFAULT_STYLE = IllustrationStyle()
+
+class SizeSpinBox(QSpinBox):
+    """Pixel-size box that accepts any number and clamps it to its range.
+
+    A plain QSpinBox silently refuses digits that would exceed the maximum,
+    which looks like a broken input field.  This one lets the user type the
+    number, then limits it when editing finishes and reports the change
+    through ``on_clamp(box, requested, applied)``.
+    """
+
+    def __init__(self, value, low, high, key, on_clamp=None):
+        super().__init__()
+        self.size_key = key
+        self.on_clamp = on_clamp
+        self.setRange(low, high)
+        self.setSuffix(" px")
+        # Re-render when editing finishes, not on every typed digit.
+        self.setKeyboardTracking(False)
+        self.setValue(value)
+        self.setMaximumWidth(115)
+
+    def _typed_number(self, text):
+        digits = text.replace(self.suffix(), "").strip()
+        return int(digits) if digits.isdigit() and len(digits) <= 9 else None
+
+    def validate(self, text, pos):
+        if self._typed_number(text) is not None:
+            return QValidator.State.Acceptable, text, pos
+        return super().validate(text, pos)
+
+    def valueFromText(self, text):
+        requested = self._typed_number(text)
+        if requested is None:
+            return super().valueFromText(text)
+        applied = max(self.minimum(), min(self.maximum(), requested))
+        if applied != requested and self.on_clamp is not None:
+            self.on_clamp(self, requested, applied)
+        return applied
+
 
 class IllustrateTool(ToolInstance):
     SESSION_ENDURING = False
@@ -167,18 +206,28 @@ class IllustrateTool(ToolInstance):
         size_layout.setContentsMargins(10, 6, 10, 6)
         self.preview_size_label = QLabel()
         size_layout.addWidget(self.preview_size_label, 0, 0)
-        self.preview_size = self._new_int(DEFAULT_PREVIEW_SIZE, 64, 1024)
+        self.preview_size = self._new_size(
+            DEFAULT_PREVIEW_SIZE, MIN_PREVIEW_SIZE, MAX_PREVIEW_SIZE, "preview_size"
+        )
         size_layout.addWidget(self.preview_size, 0, 1)
         self.output_width_label = QLabel()
         size_layout.addWidget(self.output_width_label, 0, 2)
-        self.output_width = self._new_int(DEFAULT_OUTPUT_WIDTH, MIN_OUTPUT_SIZE, MAX_OUTPUT_SIZE)
+        self.output_width = self._new_size(
+            DEFAULT_OUTPUT_WIDTH, MIN_OUTPUT_SIZE, MAX_OUTPUT_SIZE, "output_width"
+        )
         size_layout.addWidget(self.output_width, 0, 3)
         self.output_height_label = QLabel()
         size_layout.addWidget(self.output_height_label, 0, 4)
-        self.output_height = self._new_int(DEFAULT_OUTPUT_HEIGHT, MIN_OUTPUT_SIZE, MAX_OUTPUT_SIZE)
+        self.output_height = self._new_size(
+            DEFAULT_OUTPUT_HEIGHT, MIN_OUTPUT_SIZE, MAX_OUTPUT_SIZE, "output_height"
+        )
         size_layout.addWidget(self.output_height, 0, 5)
         for column in (1, 3, 5):
             size_layout.setColumnStretch(column, 1)
+        self.size_hint = QLabel()
+        self.size_hint.setWordWrap(True)
+        self.size_hint.setEnabled(False)  # drawn in the muted text color
+        size_layout.addWidget(self.size_hint, 1, 0, 1, 6)
         outer.addWidget(self.size_box)
 
         style_widget = QWidget()
@@ -262,6 +311,15 @@ class IllustrateTool(ToolInstance):
         form.addRow(label, control)
         return control
 
+    def _new_size(self, value, low, high, key):
+        return SizeSpinBox(value, low, high, key, self._size_clamped)
+
+    def _size_clamped(self, box, _requested, applied):
+        self._set_status(self._tr(
+            "size_clamped", name=self._tr(box.size_key),
+            low=box.minimum(), high=box.maximum(), value=applied,
+        ))
+
     @staticmethod
     def _new_int(value, low, high):
         control = QSpinBox()
@@ -308,6 +366,10 @@ class IllustrateTool(ToolInstance):
         self.adjust_scene_checkbox.setToolTip(self._tr("adjust_scene_tooltip"))
         self.size_box.setTitle(self._tr("size_group"))
         self.preview_size_label.setText(self._tr("preview_size"))
+        self.size_hint.setText(self._tr(
+            "size_hint", preview_min=MIN_PREVIEW_SIZE, preview_max=MAX_PREVIEW_SIZE,
+            export_min=MIN_OUTPUT_SIZE, export_max=MAX_OUTPUT_SIZE,
+        ))
         self.output_width_label.setText(self._tr("output_width"))
         self.output_height_label.setText(self._tr("output_height"))
         self.preview_size.setToolTip(self._tr("preview_tooltip"))
@@ -501,12 +563,6 @@ class IllustrateTool(ToolInstance):
             return
         self._timer.start()
 
-    def _view_for_size(self, width):
-        return view_for_size(self._view, width, self._capture_width)
-
-    def _style_for_size(self, width):
-        return scale_style_for_output(self._current_style(), width, self._capture_width)
-
     def _start_preview_render(self):
         if self._scene is None or self._view is None:
             return
@@ -517,12 +573,13 @@ class IllustrateTool(ToolInstance):
             self._preview_future.cancel()
         self._generation += 1
         generation = self._generation
-        scene = self._scene
         width = self.preview_size.value()
-        height = width
-        view = self._view_for_size(width)
-        style = self._style_for_size(width)
-        self._preview_future = self._executor.submit(render, scene, view, style, width, height)
+        # The preview uses the same renderer as the export, so it shows the
+        # style the exported PNG will have.
+        self._preview_future = self._executor.submit(
+            render_scaled, self._scene, self._view, self._current_style(),
+            self._capture_width, width, width,
+        )
         self._preview_future.add_done_callback(
             lambda future: self._deliver_render(generation, future)
         )

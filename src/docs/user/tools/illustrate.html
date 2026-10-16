@@ -46,7 +46,9 @@ Export width and height accept 2–8000 pixels. The original Fortran program
 used a fixed 3000-pixel frame buffer; this bundle uses dynamic NumPy buffers
 and scales the pixel-based contour, boundary, and shadow neighborhoods from a
 1200-pixel reference so changing the export size does not substantially change
-the visual style. Exports above 4096 pixels are processed in row tiles to avoid
+the visual style. Images narrower than 1200 pixels are rendered at 1200 pixels
+and shrunk by area averaging, so small exports (and the preview) keep the
+1200-pixel outline weight. Exports above 4096 pixels are processed in row tiles to avoid
 constructing several full-frame temporary arrays at once; larger images still
 require more time and memory. Raster and shadow results are cached, transparent
 regions are excluded from post-processing, sphere rasterization is vectorized,

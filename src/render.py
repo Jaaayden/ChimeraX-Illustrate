@@ -47,6 +47,15 @@ _PNG_IDAT_CHUNK_SIZE = 1024 * 1024
 # post-processed in horizontal tiles to bound peak memory.
 _TILED_RENDER_THRESHOLD = 4096
 _TILE_ROWS = 512
+# Depth buffers up to this many pixels are cached between renders so parameter
+# edits that do not move atoms (contours, shadows, fog) skip rasterization.
+# The reference render size (1200 x 1200) must fit, because previews use it.
+_CACHE_MAX_PIXELS = 2048 * 2048
+# Output size at which the pixel-based style (contour, boundary and shadow
+# neighborhoods) looks as intended.  Smaller images are rendered at this size
+# and averaged down, so their style matches the 1200-pixel one.
+REFERENCE_WIDTH = 1200
+MAX_RENDER_SIZE = 8000
 
 
 def clear_caches() -> None:
@@ -410,7 +419,7 @@ def _numpy_shadow(depth, visible, style: IllustrationStyle, tile_y0: int = 0):
     cacheable = (
         tile_y0 == 0
         and tile_height == frame_height
-        and depth.size <= 1024 * 1024
+        and depth.size <= _CACHE_MAX_PIXELS
     )
     owner = depth
     while isinstance(getattr(owner, "base", None), np.ndarray):
@@ -814,7 +823,7 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
         raster_x1,
         raster_y1,
     )
-    cacheable = full_width <= 1024 and full_height <= 1024
+    cacheable = full_width * full_height <= _CACHE_MAX_PIXELS
     with _RASTER_CACHE_LOCK:
         cache_hit = (
             cacheable
@@ -1066,6 +1075,102 @@ def render(scene: RenderScene, view: ViewSnapshot, style: IllustrationStyle,
     width = max(2, int(width))
     height = max(2, int(height))
     return _render_numpy(scene, view, style, width, height)
+
+
+def view_for_size(view: ViewSnapshot, width: int, capture_width: int) -> ViewSnapshot:
+    """Rescale a captured view for an image ``width`` pixels wide."""
+
+    scale = float(width) / float(max(1, capture_width))
+    return replace(view, pixels_per_angstrom=view.pixels_per_angstrom * scale)
+
+
+def reference_render_size(width: int, height: int) -> Tuple[int, int]:
+    """Return the size actually rendered for a requested output size.
+
+    Images narrower than :data:`REFERENCE_WIDTH` are rendered at that width
+    (keeping the aspect ratio, within :data:`MAX_RENDER_SIZE`) and averaged
+    down.  Everything else is rendered at its own size.
+    """
+
+    if width >= REFERENCE_WIDTH:
+        return width, height
+    factor = min(REFERENCE_WIDTH / width, MAX_RENDER_SIZE / height)
+    if factor <= 1.0:
+        return width, height
+    return int(round(width * factor)), int(round(height * factor))
+
+
+def _resample_rows(plane, target: int):
+    """Area-average ``plane`` (rows x columns) down to ``target`` rows."""
+
+    np = _np
+    count = plane.shape[0]
+    edges = np.linspace(0.0, float(count), target + 1)
+    prefix = np.zeros((count + 1,) + plane.shape[1:], dtype=np.float64)
+    np.cumsum(plane, axis=0, out=prefix[1:])
+
+    def integral(position):
+        index = np.minimum(np.floor(position).astype(np.intp), count - 1)
+        fraction = (position - index)[:, None]
+        return prefix[index] + fraction * plane[index]
+
+    return (integral(edges[1:]) - integral(edges[:-1])) / (
+        edges[1:] - edges[:-1]
+    )[:, None]
+
+
+def resample_image(image: RenderedImage, width: int, height: int) -> RenderedImage:
+    """Shrink an image by exact area averaging, in premultiplied alpha."""
+
+    if (image.width, image.height) == (width, height):
+        return image
+    if width > image.width or height > image.height:
+        raise ValueError("resample_image only shrinks images")
+    np = _np
+    source = np.frombuffer(image.rgba, dtype=np.uint8).reshape(
+        image.height, image.width, 4
+    )
+    alpha = source[..., 3].astype(np.float64) / 255.0
+
+    def shrink(plane):
+        return _resample_rows(_resample_rows(plane, height).T, width).T
+
+    alpha_out = shrink(alpha)
+    covered = alpha_out > 1e-9
+    output = np.empty((height, width, 4), dtype=np.uint8)
+    for channel in range(3):
+        premultiplied = shrink(source[..., channel] * (alpha / 255.0))
+        straight = np.where(
+            covered, premultiplied / np.where(covered, alpha_out, 1.0),
+            image.background[channel],
+        )
+        output[..., channel] = np.clip(np.rint(straight * 255.0), 0, 255)
+    output[..., 3] = np.clip(np.rint(alpha_out * 255.0), 0, 255)
+    return RenderedImage(width, height, output.tobytes(), image.background)
+
+
+def render_scaled(scene: RenderScene, view: ViewSnapshot,
+                  style: IllustrationStyle, capture_width: int,
+                  width: int, height: int) -> RenderedImage:
+    """Render a captured snapshot at ``width`` x ``height`` in the 1200 px style.
+
+    The contour, boundary and shadow neighborhoods are measured in pixels, so a
+    small image rendered directly gets proportionally thicker outlines.  Images
+    narrower than the reference width are therefore rendered at the reference
+    width and shrunk; larger images scale their neighborhoods with their size.
+    """
+
+    width = max(2, int(width))
+    height = max(2, int(height))
+    render_width, render_height = reference_render_size(width, height)
+    image = render(
+        scene,
+        view_for_size(view, render_width, capture_width),
+        scale_style_for_output(style, render_width, capture_width),
+        render_width,
+        render_height,
+    )
+    return resample_image(image, width, height)
 
 
 def _png_chunk(kind: bytes, data: bytes) -> bytes:

@@ -20,7 +20,7 @@ This repository contains only the plugin software, documentation, tests, and lic
 - English is the default interface language, with one-click switching to Chinese.
 - Parameters are grouped into three columns for contours, boundaries, and atoms/shadows/fog.
 - Transparent or opaque PNG export.
-- Output width and height from 2 to 8000 pixels; large exports use tiled processing.
+- Output width and height from 2 to 8000 pixels; large exports use tiled processing. Every size keeps the look of the 1200-pixel render: images narrower than 1200 pixels are rendered at 1200 pixels and shrunk by area averaging, and the preview works the same way. Out-of-range size entries are clamped with a status message.
 - Raster/shadow caches, active-region cropping, vectorized NumPy rasterization, and multicore shadow processing accelerate previews and high-resolution exports; PNG compositing, compression, and writing are streamed off the ChimeraX UI thread.
 - Built-in parameter explanations, practical ranges, and a reset-to-default action.
 
