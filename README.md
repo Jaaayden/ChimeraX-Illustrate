@@ -67,7 +67,7 @@ devel build ~/ChimeraX-Illustrate
 如果已经下载或构建了 `.whl` 文件，可在 ChimeraX 命令行中使用 `toolshed install` 安装。例如，将 wheel 放在 `~/Downloads` 后执行：
 
 ```text
-toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.21-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.21-py3-none-any.whl
 ```
 
 安装后重启 ChimeraX，再输入 `illustrate`。
