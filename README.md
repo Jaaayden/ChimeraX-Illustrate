@@ -67,7 +67,7 @@ devel build ~/ChimeraX-Illustrate
 如果已经下载或构建了 `.whl` 文件，可在 ChimeraX 命令行中使用 `toolshed install` 安装。例如，将 wheel 放在 `~/Downloads` 后执行：
 
 ```text
-toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.20-py3-none-any.whl
+toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.21-py3-none-any.whl
 ```
 
 安装后重启 ChimeraX，再输入 `illustrate`。
@@ -95,7 +95,7 @@ toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.20-py3-none-any.whl
 - **月度分子光谱**：蓝、绿、紫、洋红和暖色依次分配给链。
 - **单色蓝系列**：使用多级蓝色表现重复链或对称装配体。
 
-这些方案借鉴了 RCSB PDB-101 *Molecule of the Month* 中介绍的[扁平颜色与黑色轮廓](https://pdb101.rcsb.org/motm/motm-goodsell)，以及[核糖体](https://pdb101.rcsb.org/motm/10)和 [Expressome](https://pdb101.rcsb.org/motm/253) 插图中的分子组分对比方法，但不是对某一幅作品的逐色复制。配色方案按链顺序分配颜色，不会猜测功能域；“核酸碱基对比”会额外根据标准 DNA/RNA 原子名称区分糖-磷酸骨架和碱基。应用配色还会设置白色背景、柔和光照、ChimeraX 轮廓并隐藏氢原子；随后点击“捕获当前场景”更新预览。
+这些方案借鉴了 RCSB PDB-101 *Molecule of the Month* 中介绍的[扁平颜色与黑色轮廓](https://pdb101.rcsb.org/motm/motm-goodsell)，以及[核糖体](https://pdb101.rcsb.org/motm/10)和 [Expressome](https://pdb101.rcsb.org/motm/253) 插图中的分子组分对比方法，但不是对某一幅作品的逐色复制。配色方案按链顺序分配颜色，不会猜测功能域；“核酸碱基对比”会额外根据标准 DNA/RNA 原子名称区分糖-磷酸骨架和碱基。默认情况下，应用配色还会设置白色背景、柔和光照、ChimeraX 轮廓并隐藏氢原子；取消勾选“同时调整场景”可只改颜色。随后点击“捕获当前场景”更新预览。
 
 仓库仍保留兼容脚本 [`chimerax-chain-palette.py`](chimerax-chain-palette.py)，它使用“经典链配色”。需要从命令行使用时，在 ChimeraX 中运行：
 
@@ -111,17 +111,18 @@ runscript /absolute/path/to/chimerax-chain-palette.py
 
 ```text
 illustrate
-illustrate capture
-illustrate save /absolute/path/to/illustrate.png transparent true
+illustrate capture [preferAtomColors true|false]
+illustrate save /absolute/path/to/illustrate.png [transparent true|false] [width 1200] [height 1200] [preferAtomColors true|false]
 illustrate reset
 ```
 
+`illustrate save` 是同步命令：命令返回时 PNG 已写完。如果工具窗口中已有捕获的快照，则导出该快照（含已调整的参数）；否则直接捕获当前场景并使用默认参数。因此 `illustrate save` 也可用于无界面模式（`ChimeraX --nogui`），且这是该模式下唯一支持的动作；`show`、`capture`、`reset` 需要工具窗口。`preferAtomColors true` 会对仅以 cartoon 或 surface 显示的原子保留其自身颜色，只影响重新捕获。
 ## 开发与测试
 
-渲染核心是纯 Python，并提供 NumPy 加速路径和标准库后备路径。运行测试：
+渲染核心使用 ChimeraX 自带的 NumPy。`tests/reference_render.py` 保留了同一管线的纯 Python 慢速参考实现，NumPy 后端必须与之逐像素一致。运行测试：
 
 ```text
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -t . -v
 ```
 
 当前 bundle 面向 ChimeraX 1.10 及兼容的稳定版 API。超大图像会增加内存占用和渲染时间。

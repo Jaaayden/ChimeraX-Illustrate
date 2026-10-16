@@ -67,7 +67,7 @@ devel build ~/ChimeraX-Illustrate
 If you have downloaded or built a `.whl` file, install it from the ChimeraX command line with `toolshed install`. For example, after placing the wheel in `~/Downloads`, run:
 
 ```text
-toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.20-py3-none-any.whl
+toolshed install ~/Downloads/ChimeraX_Illustrate-0.1.21-py3-none-any.whl
 ```
 
 Restart ChimeraX after installation, then run `illustrate`.
@@ -95,7 +95,7 @@ The tool provides five presets:
 - **MotM Spectrum** assigns blue, green, purple, magenta, and warm colors in chain order.
 - **Monochrome Blues** uses related blue shades for repeated chains or symmetric assemblies.
 
-The presets are inspired by the [flat colors and black outlines](https://pdb101.rcsb.org/motm/motm-goodsell) described by RCSB PDB-101 and by component contrasts in its [Ribosomal Subunits](https://pdb101.rcsb.org/motm/10) and [Expressome](https://pdb101.rcsb.org/motm/253) illustrations; they are not exact color copies of any individual artwork. Presets assign colors in chain order instead of guessing functional domains. **Nucleic Base Contrast** additionally distinguishes sugar-phosphate backbone atoms from nucleobase atoms using standard DNA/RNA atom names. Applying a preset also sets a white background, soft lighting, ChimeraX silhouettes, and hidden hydrogens. Capture the scene again afterward.
+The presets are inspired by the [flat colors and black outlines](https://pdb101.rcsb.org/motm/motm-goodsell) described by RCSB PDB-101 and by component contrasts in its [Ribosomal Subunits](https://pdb101.rcsb.org/motm/10) and [Expressome](https://pdb101.rcsb.org/motm/253) illustrations; they are not exact color copies of any individual artwork. Presets assign colors in chain order instead of guessing functional domains. **Nucleic Base Contrast** additionally distinguishes sugar-phosphate backbone atoms from nucleobase atoms using standard DNA/RNA atom names. By default, applying a preset also sets a white background, soft lighting, ChimeraX silhouettes, and hidden hydrogens; clear **Also adjust scene** to change colors only. Capture the scene again afterward.
 
 The repository retains [`chimerax-chain-palette.py`](chimerax-chain-palette.py) as a command-line compatibility entry point for **Classic Chains**. To use it, run:
 
@@ -109,17 +109,18 @@ The button and script change ChimeraX display colors and related display setting
 
 ```text
 illustrate
-illustrate capture
-illustrate save /absolute/path/to/illustrate.png transparent true
+illustrate capture [preferAtomColors true|false]
+illustrate save /absolute/path/to/illustrate.png [transparent true|false] [width 1200] [height 1200] [preferAtomColors true|false]
 illustrate reset
 ```
 
+`illustrate save` is synchronous: the PNG is complete when the command returns. If the tool window holds a captured snapshot, that snapshot (with its tuned parameters) is exported; otherwise the current scene is captured directly with default parameters. Because of this, `illustrate save` also works without the graphical interface (`ChimeraX --nogui`), where it is the only supported action. `show`, `capture`, and `reset` need the tool window. `preferAtomColors true` keeps each atom's own color for atoms shown only as cartoon or surface; it only affects a fresh capture.
 ## Development and testing
 
-The rendering core is pure Python with a NumPy acceleration path and a standard-library fallback. Run the tests with:
+The rendering core uses NumPy, which ships with ChimeraX. `tests/reference_render.py` keeps a slow pure-Python implementation of the same pipeline that the NumPy backend must match pixel for pixel. Run the tests with:
 
 ```text
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -t . -v
 ```
 
 The bundle targets ChimeraX 1.10 and compatible stable APIs. Very large images require more memory and render time.
