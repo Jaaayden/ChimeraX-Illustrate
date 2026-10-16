@@ -4,7 +4,11 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.palette import apply_chain_palette, available_palette_presets
+from src.palette import (
+    apply_chain_palette,
+    available_palette_presets,
+    preset_prefers_atom_colors,
+)
 
 
 class FakeElement:
@@ -95,7 +99,6 @@ class PaletteTests(unittest.TestCase):
 
     def test_palette_reports_when_no_atomic_model_is_open(self):
         session = FakeSession([])
-        session._illustrate_prefer_atom_colors = True
         commands = []
         assignments = apply_chain_palette(
             session,
@@ -105,7 +108,6 @@ class PaletteTests(unittest.TestCase):
         self.assertEqual(assignments, ())
         self.assertEqual(commands, [])
         self.assertTrue(session.logger.warnings)
-        self.assertFalse(session._illustrate_prefer_atom_colors)
 
     def test_all_documented_presets_are_available(self):
         self.assertEqual(
@@ -177,7 +179,34 @@ class PaletteTests(unittest.TestCase):
         )
         self.assertNotIn("C1'", "\n".join(base_commands))
         self.assertNotIn("@P", "\n".join(base_commands))
-        self.assertTrue(session._illustrate_prefer_atom_colors)
+
+    def test_only_the_nucleic_preset_prefers_atom_colors(self):
+        for preset in available_palette_presets():
+            self.assertEqual(
+                preset_prefers_atom_colors(preset), preset == "ribosome"
+            )
+
+    def test_palette_leaves_scene_settings_alone_when_not_adjusting(self):
+        session = FakeSession([FakeStructure("1", ["A", "B"])])
+        commands = []
+        apply_chain_palette(
+            session,
+            command_runner=lambda _session, command: commands.append(command),
+            structure_type=FakeStructure,
+            adjust_scene=False,
+        )
+        self.assertTrue(commands)
+        self.assertTrue(all(command.startswith("color ") for command in commands))
+
+    def test_palette_does_not_attach_state_to_the_session(self):
+        session = FakeSession([FakeStructure("1", ["A"])])
+        apply_chain_palette(
+            session,
+            command_runner=lambda *_args: None,
+            structure_type=FakeStructure,
+            preset="ribosome",
+        )
+        self.assertFalse(hasattr(session, "_illustrate_prefer_atom_colors"))
 
     def test_unknown_preset_is_rejected(self):
         session = FakeSession([FakeStructure("1", ["A"])])

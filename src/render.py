@@ -1,10 +1,11 @@
-"""Pure-Python implementation of the Illustrate raster rendering pipeline.
+"""NumPy implementation of the Illustrate raster rendering pipeline.
 
 The original project uses a fixed-size Fortran frame buffer and PPM output.  This
 module keeps the same units and the same order of operations, while representing
 the input as immutable Python data so it can be rendered outside ChimeraX's UI
-thread. NumPy is optional for the core implementation and supplies the
-accelerated backend when available; the public data model is unchanged.
+thread.  NumPy ships with ChimeraX and is a declared bundle dependency.  A slow
+pure-Python reference implementation lives in ``tests/reference_render.py`` and
+is used to check that this backend reproduces it pixel for pixel.
 """
 
 from __future__ import annotations
@@ -16,13 +17,10 @@ import math
 import os
 import struct
 from threading import Lock
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Tuple
 import zlib
 
-try:
-    import numpy as _np
-except ImportError:  # The renderer remains testable without ChimeraX/NumPy.
-    _np = None
+import numpy as _np
 
 
 _SHADOW_WORKERS = min(4, os.cpu_count() or 1)
@@ -45,6 +43,21 @@ _SHADOW_CACHE = {
 }
 _PNG_COMPRESSION_LEVEL = 3
 _PNG_IDAT_CHUNK_SIZE = 1024 * 1024
+# Frames wider or taller than this (after cropping to the occupied region) are
+# post-processed in horizontal tiles to bound peak memory.
+_TILED_RENDER_THRESHOLD = 4096
+_TILE_ROWS = 512
+
+
+def clear_caches() -> None:
+    """Drop the cached depth buffers so a discarded snapshot can be freed."""
+
+    with _RASTER_CACHE_LOCK:
+        for key in _RASTER_CACHE:
+            _RASTER_CACHE[key] = None
+    with _SHADOW_CACHE_LOCK:
+        for key in _SHADOW_CACHE:
+            _SHADOW_CACHE[key] = None
 
 
 Color = Tuple[float, float, float]
@@ -159,45 +172,30 @@ class RenderedImage:
         if transparent:
             return self.rgba
         br, bg, bb = (max(0, min(255, int(round(c * 255.0)))) for c in self.background)
-        if _np is not None:
-            source = _np.frombuffer(self.rgba, dtype=_np.uint8).reshape(
-                self.height, self.width, 4
-            )
-            output = bytearray(len(self.rgba))
-            target = _np.frombuffer(output, dtype=_np.uint8).reshape(
-                self.height, self.width, 4
-            )
-            background = _np.asarray((br, bg, bb), dtype=_np.uint16)
-            # Work in row tiles so an opaque 8K export does not need several
-            # additional full-resolution uint16 compositing buffers.
-            for y0 in range(0, self.height, 512):
-                y1 = min(self.height, y0 + 512)
-                tile = source[y0:y1]
-                alpha = tile[..., 3].astype(_np.uint16)
-                inverse = 255 - alpha
-                target[y0:y1, :, :3] = (
-                    (
-                        tile[..., :3].astype(_np.uint16) * alpha[..., None]
-                        + background * inverse[..., None]
-                    )
-                    // 255
-                ).astype(_np.uint8)
-                target[y0:y1, :, 3] = 255
-            return bytes(output)
-        out = bytearray(len(self.rgba))
-        for i in range(0, len(self.rgba), 4):
-            alpha = self.rgba[i + 3]
-            if alpha == 255:
-                out[i:i + 4] = self.rgba[i:i + 4]
-            elif alpha == 0:
-                out[i:i + 4] = bytes((br, bg, bb, 255))
-            else:
-                inv = 255 - alpha
-                out[i] = (self.rgba[i] * alpha + br * inv) // 255
-                out[i + 1] = (self.rgba[i + 1] * alpha + bg * inv) // 255
-                out[i + 2] = (self.rgba[i + 2] * alpha + bb * inv) // 255
-                out[i + 3] = 255
-        return bytes(out)
+        source = _np.frombuffer(self.rgba, dtype=_np.uint8).reshape(
+            self.height, self.width, 4
+        )
+        output = bytearray(len(self.rgba))
+        target = _np.frombuffer(output, dtype=_np.uint8).reshape(
+            self.height, self.width, 4
+        )
+        background = _np.asarray((br, bg, bb), dtype=_np.uint16)
+        # Work in row tiles so an opaque 8K export does not need several
+        # additional full-resolution uint16 compositing buffers.
+        for y0 in range(0, self.height, 512):
+            y1 = min(self.height, y0 + 512)
+            tile = source[y0:y1]
+            alpha = tile[..., 3].astype(_np.uint16)
+            inverse = 255 - alpha
+            target[y0:y1, :, :3] = (
+                (
+                    tile[..., :3].astype(_np.uint16) * alpha[..., None]
+                    + background * inverse[..., None]
+                )
+                // 255
+            ).astype(_np.uint8)
+            target[y0:y1, :, 3] = 255
+        return bytes(output)
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -212,24 +210,14 @@ def _mat_vec(matrix: Matrix3, vector: Vec3) -> Vec3:
     )
 
 
-def _apply_view(coord: Vec3, view: ViewSnapshot) -> Vec3:
-    transformed = _mat_vec(view.rotation, coord)
-    return (
-        transformed[0] + view.translation[0],
-        transformed[1] + view.translation[1],
-        transformed[2] + view.translation[2],
-    )
-
-
-def _center_viewed_coordinates(atoms: Sequence[AtomRecord], view: ViewSnapshot) -> Tuple[Vec3, float]:
+def _center_viewed_coordinates(atoms, view: ViewSnapshot) -> Vec3:
     transformed = [_mat_vec(view.rotation, atom.coord) for atom in atoms]
     if not transformed:
-        return (0.0, 0.0, 0.0), 1.0
+        return (0.0, 0.0, 0.0)
     xmin = min(p[0] for p in transformed)
     xmax = max(p[0] for p in transformed)
     ymin = min(p[1] for p in transformed)
     ymax = max(p[1] for p in transformed)
-    zmin = min(p[2] for p in transformed)
     zmax = max(p[2] for p in transformed)
     max_radius = max(max(0.0, atom.radius) for atom in atoms) * view.pixels_per_angstrom
     if view.auto_center:
@@ -238,52 +226,47 @@ def _center_viewed_coordinates(atoms: Sequence[AtomRecord], view: ViewSnapshot) 
         center = (-(xmin + xmax) / 2.0, -(ymin + ymax) / 2.0, -zmax - max_radius / max(view.pixels_per_angstrom, 1e-9) - 1.0)
     else:
         center = (0.0, 0.0, 0.0)
-    return center, zmax - zmin
-
-
-@lru_cache(maxsize=128)
-def _sphere_points(radius: float) -> Tuple[Tuple[int, int, float], ...]:
-    """Return the raster samples for a sphere radius.
-
-    Molecular scenes normally contain only a handful of distinct atom radii.
-    Reusing their integer sphere tables avoids rebuilding the same, increasingly
-    large table for every atom during high-resolution exports.
-    """
-
-    radius = max(0.0, radius)
-    limit = int(radius)
-    points: List[Tuple[int, int, float]] = []
-    for dx in range(-limit - 1, limit + 2):
-        for dy in range(-limit - 1, limit + 2):
-            distance = math.sqrt(float(dx * dx + dy * dy))
-            if distance <= radius:
-                points.append((dx, dy, math.sqrt(max(0.0, radius * radius - distance * distance))))
-    return tuple(points)
+    return center
 
 
 @lru_cache(maxsize=128)
 def _sphere_arrays(radius: float):
-    """Return cached NumPy arrays for vectorized sphere rasterization."""
+    """Return cached integer-sphere raster samples for a radius.
 
-    points = _sphere_points(radius)
-    if not points:
-        return (
-            _np.empty(0, dtype=_np.int32),
-            _np.empty(0, dtype=_np.int32),
-            _np.empty(0, dtype=_np.float64),
-        )
-    offsets_x, offsets_y, surface_z = zip(*points)
-    return (
-        _np.asarray(offsets_x, dtype=_np.int32),
-        _np.asarray(offsets_y, dtype=_np.int32),
-        _np.asarray(surface_z, dtype=_np.float64),
+    Mirrors Illustrate's Fortran rasterizer: every integer offset whose
+    distance from the center is within ``radius`` is sampled, with the surface
+    height ``sqrt(radius**2 - distance**2)``.  Molecular scenes contain only a
+    few distinct radii, so the table is cached per radius.
+    """
+
+    radius = max(0.0, radius)
+    limit = int(radius)
+    grid = _np.arange(-limit - 1, limit + 2, dtype=_np.int32)
+    offsets_x, offsets_y = _np.meshgrid(grid, grid, indexing="ij")
+    distance = _np.sqrt(
+        (offsets_x * offsets_x + offsets_y * offsets_y).astype(_np.float64)
     )
+    inside = distance <= radius
+    surface_z = _np.sqrt(
+        _np.maximum(0.0, radius * radius - distance[inside] * distance[inside])
+    )
+    return offsets_x[inside], offsets_y[inside], surface_z
 
 
-def _safe_ramp(value: float, low: float, high: float) -> float:
-    if high <= low:
-        return 1.0 if value > low else 0.0
-    return _clamp((value - low) / (high - low))
+_KERNEL_ONE = (
+    (-0.8, -1.0, -0.8),
+    (-1.0, 7.2, -1.0),
+    (-0.8, -1.0, -0.8),
+)
+_KERNEL_TWO = {
+    (-1, -1): -0.8, (-1, 0): -1.0, (-1, 1): -0.8,
+    (0, -1): -1.0, (0, 0): 8.8, (0, 1): -1.0,
+    (1, -1): -0.8, (1, 0): -1.0, (1, 1): -0.8,
+    (-2, -1): -0.1, (-2, 0): -0.2, (-2, 1): -0.1,
+    (2, -1): -0.1, (2, 0): -0.2, (2, 1): -0.1,
+    (-1, -2): -0.1, (0, -2): -0.2, (1, -2): -0.1,
+    (-1, 2): -0.1, (0, 2): -0.2, (1, 2): -0.1,
+}
 
 
 def _contour_thresholds(style: IllustrationStyle) -> Tuple[float, float]:
@@ -300,231 +283,7 @@ def _contour_thresholds(style: IllustrationStyle) -> Tuple[float, float]:
     return style.contour_low * response_scale, style.contour_high * response_scale
 
 
-def _kernel_value(kind: int, depth: List[List[float]], x: int, y: int, cx: int, cy: int,
-                  depth_min: float, depth_max: float, step: int = 1) -> float:
-    if kind == 1:
-        weights = (
-            (-0.8, -1.0, -0.8),
-            (-1.0, 7.2, -1.0),
-            (-0.8, -1.0, -0.8),
-        )
-        total = 0.0
-        for ix in range(3):
-            for iy in range(3):
-                total += weights[ix][iy] * depth[x + (ix - 1) * step][y + (iy - 1) * step]
-        return abs(total / 3.0)
-    if kind == 2:
-        total = 0.0
-        weights = {
-            (-1, -1): -0.8, (-1, 0): -1.0, (-1, 1): -0.8,
-            (0, -1): -1.0, (0, 0): 8.8, (0, 1): -1.0,
-            (1, -1): -0.8, (1, 0): -1.0, (1, 1): -0.8,
-            (-2, -1): -0.1, (-2, 0): -0.2, (-2, 1): -0.1,
-            (2, -1): -0.1, (2, 0): -0.2, (2, 1): -0.1,
-            (-1, -2): -0.1, (0, -2): -0.2, (1, -2): -0.1,
-            (-1, 2): -0.1, (0, 2): -0.2, (1, 2): -0.1,
-        }
-        for (dx, dy), weight in weights.items():
-            total += weight * depth[x + dx * step][y + dy * step]
-        return abs(total / 3.0)
-    total = 0.0
-    for dx in range(-1 if kind == 3 else -2, 2 if kind == 3 else 3):
-        for dy in range(-1 if kind == 3 else -2, 2 if kind == 3 else 3):
-            if kind == 4 and abs(dx * dy) == 4:
-                continue
-            difference = abs(depth[cx][cy] - depth[cx + dx * step][cy + dy * step])
-            if difference > depth_min:
-                total += min((difference - depth_min) / max(depth_max - depth_min, 1e-9), 1.0)
-    return total
 
-
-def _outline_opacity(depth: List[List[float]], atom_map: List[List[int]], atoms: Sequence[AtomRecord],
-                     x: int, y: int, style: IllustrationStyle) -> float:
-    width = len(depth)
-    height = len(depth[0]) if width else 0
-    step = max(1, int(round(style.raster_scale)))
-    # Kernel 2 is sampled one step around (x, y) and inspects another two
-    # steps around each sample.  Count-based kernels use (x, y) directly, so
-    # the usual two-step group-boundary margin is sufficient for them.
-    margin = (3 if style.contour_kernel == 2 else 2) * step
-    if x < margin or y < margin or x >= width - margin or y >= height - margin:
-        return 0.0
-
-    current = atom_map[x][y]
-    current_subunit = atoms[current].subunit if current >= 0 else None
-    current_residue = atoms[current].residue if current >= 0 else None
-    subunit_changes = 0
-    residue_changes = 0
-    for dx in range(-2, 3):
-        for dy in range(-2, 3):
-            if abs(dx * dy) == 4:
-                continue
-            neighbor = atom_map[x + dx * step][y + dy * step]
-            neighbor_subunit = atoms[neighbor].subunit if neighbor >= 0 else None
-            neighbor_residue = atoms[neighbor].residue if neighbor >= 0 else None
-            if current_subunit != neighbor_subunit:
-                subunit_changes += 1
-            if current_residue is not None and neighbor_residue is not None:
-                if abs(current_residue - neighbor_residue) > style.residue_difference:
-                    residue_changes += 1
-
-    subunit_opacity = min(_safe_ramp(subunit_changes, style.subunit_low, style.subunit_high), 1.0)
-    residue_opacity = min(_safe_ramp(residue_changes, style.residue_low, style.residue_high), 1.0)
-    group_opacity = max(subunit_opacity, residue_opacity, 0.0)
-
-    local_values: List[float] = []
-    active_count = 0
-    contour_low, contour_high = _contour_thresholds(style)
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            value = _kernel_value(
-                style.contour_kernel, depth, x + dx * step, y + dy * step, x, y,
-                style.contour_depth_min, style.contour_depth_max,
-                step,
-            )
-            local = _clamp(_safe_ramp(value, contour_low, contour_high))
-            local_values.append(local)
-            if local > 0.0:
-                active_count += 1
-    if active_count >= 6:
-        # Match Illustrate's original normalization: the nine samples are
-        # averaged over the six-sample activation threshold, not over all
-        # nine positions.  This keeps kernels 3 and 4 from becoming
-        # artificially faint when several neighboring derivatives are active.
-        contour_opacity = sum(local_values) / 6.0
-    else:
-        contour_opacity = local_values[4]
-    return max(group_opacity, _clamp(contour_opacity))
-
-
-def _render_python(scene: RenderScene, view: ViewSnapshot, style: IllustrationStyle,
-                   width: int, height: int) -> RenderedImage:
-    """Render a scene to an RGBA image.
-
-    The implementation intentionally uses Python lists so it can be tested in
-    a plain Python installation.  ChimeraX bundles NumPy, and this function's
-    immutable input/output contract is designed so a NumPy implementation can
-    replace the inner loops without changing the tool API.
-    """
-
-    width = max(2, int(width))
-    height = max(2, int(height))
-    radius_scale = max(0.0, view.pixels_per_angstrom * style.radius_scale)
-
-    center, _ = _center_viewed_coordinates(scene.atoms, view)
-    projected: List[Tuple[float, float, float, float, AtomRecord]] = []
-    for atom in scene.atoms:
-        transformed = _mat_vec(view.rotation, atom.coord)
-        if view.auto_center:
-            transformed = (
-                transformed[0] + center[0],
-                transformed[1] + center[1],
-                transformed[2] + center[2],
-            )
-        else:
-            transformed = (
-                transformed[0] + view.translation[0],
-                transformed[1] + view.translation[1],
-                transformed[2] + view.translation[2],
-            )
-        projected.append((
-            transformed[0] * view.pixels_per_angstrom + width / 2.0,
-            transformed[1] * view.pixels_per_angstrom + height / 2.0,
-            transformed[2] * view.pixels_per_angstrom,
-            max(0.0, atom.radius) * radius_scale,
-            atom,
-        ))
-
-    # The view translation is in world coordinates and can put the whole
-    # molecule well behind the camera after a rotation.  A fixed depth
-    # sentinel then becomes larger than every projected atom at high output
-    # scales, so no sphere can overwrite the background.  Keep the sentinel
-    # just behind this particular projection instead.
-    depth_floor = min(
-        (pz - radius for _px, _py, pz, radius, _atom in projected
-         if pz < 0.0 and radius > 0.0),
-        default=-10000.0,
-    ) - 1.0
-    depth = [[depth_floor for _ in range(height)] for _ in range(width)]
-    atom_map = [[-1 for _ in range(height)] for _ in range(width)]
-
-    for atom_index, (px, py, pz, radius, _atom) in enumerate(projected):
-        if pz >= 0.0 or radius <= 0.0:
-            continue
-        for dx, dy, surface_z in _sphere_points(radius):
-            x = int(px + dx)
-            y = int(py + dy)
-            if x < 0 or x >= width or y < 0 or y >= height:
-                continue
-            z = surface_z + pz
-            if z > depth[x][y]:
-                depth[x][y] = z
-                atom_map[x][y] = atom_index
-
-    visible_depths = [depth[x][y] for x in range(width) for y in range(height) if atom_map[x][y] >= 0]
-    if visible_depths:
-        zmin = min(visible_depths)
-        zmax = min(max(visible_depths), 0.0)
-    else:
-        zmin = 0.0
-        zmax = 0.0
-    zspread = zmax - zmin
-    if zspread <= 1e-9:
-        zspread = 1.0
-
-    shadow_offsets = []
-    if style.shadows:
-        shadow_radius = max(1, int(round(50.0 * style.raster_scale)))
-        shadow_step = max(1, int(round(5.0 * style.raster_scale)))
-        for dx in range(-shadow_radius, shadow_radius + 1, shadow_step):
-            for dy in range(-shadow_radius, shadow_radius + 1, shadow_step):
-                distance = math.sqrt(float(dx * dx + dy * dy))
-                if distance <= 50.0 and (dx != 0 or dy != 0):
-                    shadow_offsets.append((dx, dy, distance))
-
-    output = bytearray(width * height * 4)
-    for x in range(width):
-        for y in range(height):
-            atom_index = atom_map[x][y]
-            z = min(depth[x][y], 0.0)
-            shadow = 1.0
-            if atom_index >= 0 and style.shadows:
-                for dx, dy, distance in shadow_offsets:
-                    nx = x + dx
-                    ny = y + dy
-                    if 0 <= nx < width and 0 <= ny < height:
-                        z_difference = depth[nx][ny] - depth[x][y]
-                        if z_difference > style.shadow_depth and distance * style.shadow_cone_angle < z_difference + style.shadow_depth:
-                            shadow -= style.shadow_contribution
-                shadow = max(shadow, style.shadow_maximum)
-
-            fog_fraction = style.fog_front - (zmax - z) / zspread * (style.fog_front - style.fog_back)
-            if z < zmin:
-                fog_fraction = 1.0
-            fog_fraction = _clamp(fog_fraction)
-            if atom_index >= 0:
-                color = scene.atoms[atom_index].color
-            else:
-                color = style.background
-            base_rgb = tuple(
-                _clamp(fog_fraction * shadow * color[i] + (1.0 - fog_fraction) * style.fog_color[i])
-                for i in range(3)
-            )
-            outline_opacity = 0.0
-            if style.contour_kernel in (1, 2, 3, 4):
-                outline_opacity = _outline_opacity(depth, atom_map, scene.atoms, x, y, style)
-            # Illustrate writes the outline as a blackening of the pixel's
-            # color, while its separate opacity map controls transparency.
-            rgb = tuple(_clamp((1.0 - outline_opacity) * value) for value in base_rgb)
-            opacity = max(1.0 if atom_index >= 0 else 0.0, outline_opacity)
-            index = (y * width + x) * 4
-            output[index:index + 4] = bytes((
-                int(round(rgb[0] * 255.0)),
-                int(round(rgb[1] * 255.0)),
-                int(round(rgb[2] * 255.0)),
-                int(round(_clamp(opacity) * 255.0)),
-            ))
-    return RenderedImage(width, height, bytes(output), style.background)
 
 
 def _numpy_shift(array, dx: int, dy: int, fill_value):
@@ -776,23 +535,9 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
     subunit_array = np.asarray(subunit_codes if subunit_codes else [0], dtype=np.int32)
     residue_array = np.asarray(residue_numbers if residue_numbers else [9999], dtype=np.int32)
     output = bytearray(width * height * 4)
-    tile_rows = 512
+    tile_rows = _TILE_ROWS
     neighborhood_step = max(1, int(round(style.raster_scale)))
     neighborhood_margin = (3 if style.contour_kernel == 2 else 2) * neighborhood_step
-    kernel_one = (
-        (-0.8, -1.0, -0.8),
-        (-1.0, 7.2, -1.0),
-        (-0.8, -1.0, -0.8),
-    )
-    kernel_two = {
-        (-1, -1): -0.8, (-1, 0): -1.0, (-1, 1): -0.8,
-        (0, -1): -1.0, (0, 0): 8.8, (0, 1): -1.0,
-        (1, -1): -0.8, (1, 0): -1.0, (1, 1): -0.8,
-        (-2, -1): -0.1, (-2, 0): -0.2, (-2, 1): -0.1,
-        (2, -1): -0.1, (2, 0): -0.2, (2, 1): -0.1,
-        (-1, -2): -0.1, (0, -2): -0.2, (1, -2): -0.1,
-        (-1, 2): -0.1, (0, 2): -0.2, (1, 2): -0.1,
-    }
 
     for y0 in range(0, height, tile_rows):
         y1 = min(height, y0 + tile_rows)
@@ -881,7 +626,7 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
                     raw = np.zeros((tile_height, width), dtype=np.float32)
                     for dx in (-1, 0, 1):
                         for dy in (-1, 0, 1):
-                            raw += kernel_one[dy + 1][dx + 1] * _numpy_shift_region(
+                            raw += _KERNEL_ONE[dy + 1][dx + 1] * _numpy_shift_region(
                                 depth, 0, width, y0, y1,
                                 (local_x + dx) * neighborhood_step,
                                 (local_y + dy) * neighborhood_step,
@@ -890,7 +635,7 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
                     raw = np.abs(raw / 3.0)
                 elif style.contour_kernel == 2:
                     raw = np.zeros((tile_height, width), dtype=np.float32)
-                    for (dx, dy), weight in kernel_two.items():
+                    for (dx, dy), weight in _KERNEL_TWO.items():
                         raw += weight * _numpy_shift_region(
                             depth, 0, width, y0, y1,
                             (local_x + dx) * neighborhood_step,
@@ -971,7 +716,7 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
     np = _np
     full_width = width
     full_height = height
-    center, _ = _center_viewed_coordinates(scene.atoms, view)
+    center = _center_viewed_coordinates(scene.atoms, view)
     projected = []
     subunit_codes = []
     subunit_lookup = {}
@@ -1161,7 +906,7 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
             crop_x0 = raster_x0
             crop_y0 = raster_y0
 
-    if width > 4096 or height > 4096:
+    if width > _TILED_RENDER_THRESHOLD or height > _TILED_RENDER_THRESHOLD:
         image = _render_numpy_tiled(
             scene, view, style, width, height, depth, atom_map, zmin, zmax, depth_floor
         )
@@ -1229,20 +974,6 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
         contour_pad = 4 * neighborhood_step
         padded_depth = np.pad(depth, contour_pad, mode="constant", constant_values=depth_floor)
         contour_inner = neighborhood_margin
-        kernel_one = (
-            (-0.8, -1.0, -0.8),
-            (-1.0, 7.2, -1.0),
-            (-0.8, -1.0, -0.8),
-        )
-        kernel_two = {
-            (-1, -1): -0.8, (-1, 0): -1.0, (-1, 1): -0.8,
-            (0, -1): -1.0, (0, 0): 8.8, (0, 1): -1.0,
-            (1, -1): -0.8, (1, 0): -1.0, (1, 1): -0.8,
-            (-2, -1): -0.1, (-2, 0): -0.2, (-2, 1): -0.1,
-            (2, -1): -0.1, (2, 0): -0.2, (2, 1): -0.1,
-            (-1, -2): -0.1, (0, -2): -0.2, (1, -2): -0.1,
-            (-1, 2): -0.1, (0, 2): -0.2, (1, 2): -0.1,
-        }
         local_offsets = (
             ((0, 0),)
             if style.contour_kernel in (3, 4)
@@ -1257,14 +988,14 @@ def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationSty
                 raw = np.zeros((height - 2 * contour_inner, width - 2 * contour_inner), dtype=np.float32)
                 for dx in (-1, 0, 1):
                     for dy in (-1, 0, 1):
-                        raw += kernel_one[dy + 1][dx + 1] * padded_depth[
+                        raw += _KERNEL_ONE[dy + 1][dx + 1] * padded_depth[
                             y_start + dy * neighborhood_step:y_end + dy * neighborhood_step,
                             x_start + dx * neighborhood_step:x_end + dx * neighborhood_step,
                         ]
                 raw = np.abs(raw / 3.0)
             elif style.contour_kernel == 2:
                 raw = np.zeros((height - 2 * contour_inner, width - 2 * contour_inner), dtype=np.float32)
-                for (dx, dy), weight in kernel_two.items():
+                for (dx, dy), weight in _KERNEL_TWO.items():
                     raw += weight * padded_depth[
                         y_start + dy * neighborhood_step:y_end + dy * neighborhood_step,
                         x_start + dx * neighborhood_step:x_end + dx * neighborhood_step,
@@ -1334,9 +1065,7 @@ def render(scene: RenderScene, view: ViewSnapshot, style: IllustrationStyle,
            width: int, height: int) -> RenderedImage:
     width = max(2, int(width))
     height = max(2, int(height))
-    if _np is not None:
-        return _render_numpy(scene, view, style, width, height)
-    return _render_python(scene, view, style, width, height)
+    return _render_numpy(scene, view, style, width, height)
 
 
 def _png_chunk(kind: bytes, data: bytes) -> bytes:
@@ -1357,47 +1086,28 @@ def _png_scanlines(image: RenderedImage, transparent: bool):
         max(0, min(255, int(round(channel * 255.0))))
         for channel in image.background
     )
-    if _np is not None:
-        source = _np.frombuffer(image.rgba, dtype=_np.uint8).reshape(
-            image.height, image.width, 4
-        )
-        background = _np.asarray((br, bg, bb), dtype=_np.uint16)
-        for y0 in range(0, image.height, 256):
-            y1 = min(image.height, y0 + 256)
-            tile = source[y0:y1]
-            alpha = tile[..., 3].astype(_np.uint16)
-            inverse = 255 - alpha
-            output = _np.empty(tile.shape, dtype=_np.uint8)
-            output[..., :3] = (
-                (
-                    tile[..., :3].astype(_np.uint16) * alpha[..., None]
-                    + background * inverse[..., None]
-                )
-                // 255
-            ).astype(_np.uint8)
-            output[..., 3] = 255
-            data = output.tobytes()
-            for row in range(y1 - y0):
-                start = row * row_bytes
-                yield b"\x00" + data[start:start + row_bytes]
-        return
-
-    for row in range(image.height):
-        start = row * row_bytes
-        source = image.rgba[start:start + row_bytes]
-        output = bytearray(row_bytes)
-        for index in range(0, row_bytes, 4):
-            alpha = source[index + 3]
-            inverse = 255 - alpha
-            output[index] = (source[index] * alpha + br * inverse) // 255
-            output[index + 1] = (
-                source[index + 1] * alpha + bg * inverse
-            ) // 255
-            output[index + 2] = (
-                source[index + 2] * alpha + bb * inverse
-            ) // 255
-            output[index + 3] = 255
-        yield b"\x00" + bytes(output)
+    source = _np.frombuffer(image.rgba, dtype=_np.uint8).reshape(
+        image.height, image.width, 4
+    )
+    background = _np.asarray((br, bg, bb), dtype=_np.uint16)
+    for y0 in range(0, image.height, 256):
+        y1 = min(image.height, y0 + 256)
+        tile = source[y0:y1]
+        alpha = tile[..., 3].astype(_np.uint16)
+        inverse = 255 - alpha
+        output = _np.empty(tile.shape, dtype=_np.uint8)
+        output[..., :3] = (
+            (
+                tile[..., :3].astype(_np.uint16) * alpha[..., None]
+                + background * inverse[..., None]
+            )
+            // 255
+        ).astype(_np.uint8)
+        output[..., 3] = 255
+        data = output.tobytes()
+        for row in range(y1 - y0):
+            start = row * row_bytes
+            yield b"\x00" + data[start:start + row_bytes]
 
 
 def _compressed_png_data(image: RenderedImage, transparent: bool):

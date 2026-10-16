@@ -293,9 +293,25 @@ def _apply_chain_colors(session, structures, command_runner, preset):
     return assignments
 
 
+def preset_prefers_atom_colors(preset):
+    """Whether captures should keep per-atom colors after applying ``preset``.
+
+    The nucleic-base preset colors backbone and nucleobase atoms differently,
+    which cartoon/surface colors would otherwise hide.
+    """
+
+    return preset == "ribosome"
+
+
 def apply_chain_palette(session, command_runner=None, structure_type=None,
-                        preset="classic", residue_type=None):
-    """Apply a coloring preset and return assignment descriptions."""
+                        preset="classic", residue_type=None,
+                        adjust_scene=True):
+    """Apply a coloring preset and return assignment descriptions.
+
+    With ``adjust_scene`` the scene is also prepared for illustration: hydrogens
+    are hidden, the background is set to white, and soft lighting and
+    silhouettes are enabled.  Pass ``adjust_scene=False`` to change colors only.
+    """
 
     if preset not in PALETTE_PRESETS:
         raise ValueError("Unknown Illustrate palette preset: {}".format(preset))
@@ -307,7 +323,6 @@ def apply_chain_palette(session, command_runner=None, structure_type=None,
         from chimerax.core.commands import run
         command_runner = run
 
-    session._illustrate_prefer_atom_colors = preset == "ribosome"
     structures = session.models.list(type=structure_type)
     if not structures:
         session.logger.warning("Illustrate palette: no atomic model is open.")
@@ -322,14 +337,11 @@ def apply_chain_palette(session, command_runner=None, structure_type=None,
             session, structures, command_runner, preset
         )
 
-    # Cartoon and surface capture normally follows the representation's
-    # overall color.  This preset intentionally contains atom-level color
-    # information (chain-colored backbone versus pale nucleobases), so retain
-    # those atom colors when converting any representation to spheres.
-    command_runner(session, "hide H atoms")
-    command_runner(session, "set bgColor white")
-    command_runner(session, "lighting soft")
-    command_runner(session, "graphics silhouettes true")
+    if adjust_scene:
+        command_runner(session, "hide H atoms")
+        command_runner(session, "set bgColor white")
+        command_runner(session, "lighting soft")
+        command_runner(session, "graphics silhouettes true")
 
     session.logger.info(
         "Illustrate palette '{}' applied to {} component(s):\n{}".format(

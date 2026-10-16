@@ -6,9 +6,14 @@ data classes in :mod:`illustrate.render` before rendering starts.
 
 from __future__ import annotations
 
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import List
 
 from .render import AtomRecord, IllustrationStyle, RenderScene, ViewSnapshot
+
+# Warning codes returned by :func:`capture_scene`.  The UI and the command line
+# translate them into their own message language.
+WARNING_NO_ATOMS = "no_atoms"
+WARNING_PERSPECTIVE = "perspective"
 
 
 def _as_color(value, default=(1.0, 1.0, 1.0)):
@@ -259,14 +264,18 @@ def _representation_color(atom, atom_displayed, surface_color,
     return _as_color(getattr(atom, "color", None))
 
 
-def capture_scene(session, width: int = 800, height: int = 800):
-    """Capture atoms represented by visible atoms, cartoons, or surfaces."""
+def capture_scene(session, width: int = 800, height: int = 800,
+                  prefer_atom_colors: bool = False):
+    """Capture atoms represented by visible atoms, cartoons, or surfaces.
+
+    ``prefer_atom_colors`` keeps per-atom colors for atoms that are only shown
+    as cartoon or surface, instead of using the ribbon/surface color.  Returns
+    ``(scene, view, style, warnings)`` where ``warnings`` is a tuple of
+    ``WARNING_*`` codes.
+    """
 
     atoms: List[AtomRecord] = []
     surface_colors = _surface_atom_colors(session)
-    prefer_atom_colors = bool(
-        getattr(session, "_illustrate_prefer_atom_colors", False)
-    )
     for model in _scene_models(session):
         if not _model_is_visible(model):
             continue
@@ -329,9 +338,7 @@ def capture_scene(session, width: int = 800, height: int = 800):
     style = IllustrationStyle(background=background, fog_color=background)
     warnings = []
     if not atoms:
-        warnings.append(
-            "没有可捕获的原子、cartoon 或 molecular surface"
-        )
+        warnings.append(WARNING_NO_ATOMS)
     if "ortho" not in projection.lower() and projection not in ("unknown", ""):
-        warnings.append("当前相机为透视投影；Illustrate 预览使用正交投影")
-    return render_scene, view_snapshot, style, "；".join(warnings)
+        warnings.append(WARNING_PERSPECTIVE)
+    return render_scene, view_snapshot, style, tuple(warnings)

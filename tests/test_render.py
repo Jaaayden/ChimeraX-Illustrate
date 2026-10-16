@@ -6,10 +6,12 @@ import unittest
 import zlib
 from dataclasses import replace
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.dirname(__file__))
 
-import render as render_module
-from render import (
+from reference_render import render_python
+from src import render as render_module
+from src.render import (
     AtomRecord,
     IllustrationStyle,
     RenderScene,
@@ -54,29 +56,70 @@ class RenderTests(unittest.TestCase):
         image_b = render(self.scene, self.view, styled, 48, 48)
         self.assertNotEqual(image_a.rgba, image_b.rgba)
 
-    def test_numpy_and_python_backends_both_render(self):
-        if render_module._np is None:
-            self.skipTest("NumPy is not available")
+    def test_numpy_backend_matches_python_reference(self):
         style = scale_style_for_output(
             IllustrationStyle(shadows=False), 96, 64
         )
         view = replace(self.view, pixels_per_angstrom=27.0)
         accelerated = render(self.scene, view, style, 96, 96)
-        reference = render_module._render_python(self.scene, view, style, 96, 96)
+        reference = render_python(self.scene, view, style, 96, 96)
         self.assertIn(255, accelerated.rgba[3::4])
         self.assertIn(255, reference.rgba[3::4])
         self.assertEqual(accelerated.rgba, reference.rgba)
 
+    def test_backends_match_for_every_contour_kernel_with_shadows(self):
+        for kernel in (1, 2, 3, 4):
+            with self.subTest(kernel=kernel):
+                style = IllustrationStyle(contour_kernel=kernel)
+                accelerated = render(self.scene, self.view, style, 72, 72)
+                reference = render_python(self.scene, self.view, style, 72, 72)
+                self.assertEqual(accelerated.rgba, reference.rgba)
+
+    def test_tiled_path_matches_untiled_path(self):
+        saved = (render_module._TILED_RENDER_THRESHOLD, render_module._TILE_ROWS)
+        try:
+            for kernel in (1, 2, 3, 4):
+                style = IllustrationStyle(contour_kernel=kernel)
+                render_module._TILED_RENDER_THRESHOLD = 4096
+                render_module._TILE_ROWS = 512
+                render_module.clear_caches()
+                untiled = render(self.scene, self.view, style, 96, 96)
+                render_module._TILED_RENDER_THRESHOLD = 8
+                render_module._TILE_ROWS = 16
+                render_module.clear_caches()
+                tiled = render(self.scene, self.view, style, 96, 96)
+                with self.subTest(kernel=kernel):
+                    self.assertEqual(untiled.rgba, tiled.rgba)
+        finally:
+            render_module._TILED_RENDER_THRESHOLD, render_module._TILE_ROWS = saved
+            render_module.clear_caches()
+
     def test_sphere_samples_are_cached_by_radius(self):
-        render_module._sphere_points.cache_clear()
-        first = render_module._sphere_points(12.5)
-        second = render_module._sphere_points(12.5)
+        render_module._sphere_arrays.cache_clear()
+        first = render_module._sphere_arrays(12.5)
+        second = render_module._sphere_arrays(12.5)
         self.assertIs(first, second)
-        self.assertGreater(len(first), 0)
+        self.assertGreater(len(first[0]), 0)
+
+    def test_vectorized_sphere_table_matches_scalar_definition(self):
+        from reference_render import _sphere_points
+
+        for radius in (0.0, 0.4, 1.0, 3.7, 12.5, 40.0):
+            with self.subTest(radius=radius):
+                offsets_x, offsets_y, surface_z = render_module._sphere_arrays(radius)
+                expected = sorted(_sphere_points(radius))
+                actual = sorted(zip(
+                    offsets_x.tolist(), offsets_y.tolist(), surface_z.tolist()
+                ))
+                self.assertEqual(actual, expected)
+
+    def test_clear_caches_releases_snapshot(self):
+        render(self.scene, self.view, self.style, 64, 64)
+        render_module.clear_caches()
+        self.assertIsNone(render_module._RASTER_CACHE["scene"])
+        self.assertIsNone(render_module._SHADOW_CACHE["shadow"])
 
     def test_numpy_opaque_compositing_matches_integer_reference(self):
-        if render_module._np is None:
-            self.skipTest("NumPy is not available")
         image = render(self.scene, self.view, self.style, 24, 24)
         accelerated = image.composited_rgba(transparent=False)
         expected = bytearray(len(image.rgba))
