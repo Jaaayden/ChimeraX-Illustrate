@@ -7,21 +7,21 @@ so exporting works without the graphical interface (for example in
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Optional, Tuple
 
 from .render import (
     IllustrationStyle,
     RenderScene,
     ViewSnapshot,
-    render,
+    render_scaled,
     save_png,
-    scale_style_for_output,
 )
 from .scene import WARNING_NO_ATOMS, WARNING_PERSPECTIVE, capture_scene
 
 
 DEFAULT_PREVIEW_SIZE = 512
+MIN_PREVIEW_SIZE = 64
+MAX_PREVIEW_SIZE = 1024
 DEFAULT_OUTPUT_WIDTH = 1200
 DEFAULT_OUTPUT_HEIGHT = 1200
 MIN_OUTPUT_SIZE = 2
@@ -51,26 +51,13 @@ def check_output_size(width: int, height: int) -> Optional[str]:
     return None
 
 
-def view_for_size(view: ViewSnapshot, width: int, capture_width: int) -> ViewSnapshot:
-    """Rescale a captured view for an image ``width`` pixels wide."""
-
-    scale = float(width) / float(max(1, capture_width))
-    return replace(view, pixels_per_angstrom=view.pixels_per_angstrom * scale)
-
-
 def render_snapshot_to_png(scene: RenderScene, view: ViewSnapshot,
                            style: IllustrationStyle, capture_width: int,
                            width: int, height: int, path: str,
                            transparent: bool = True) -> str:
     """Render a captured snapshot at the requested size and write a PNG."""
 
-    image = render(
-        scene,
-        view_for_size(view, width, capture_width),
-        scale_style_for_output(style, width, capture_width),
-        width,
-        height,
-    )
+    image = render_scaled(scene, view, style, capture_width, width, height)
     save_png(path, image, transparent=transparent)
     return path
 

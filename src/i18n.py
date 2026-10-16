@@ -44,7 +44,7 @@ PARAMETER_HELP_HTML_ZH = """
 <li><b>前景/背景雾比例</b>：保留原色的比例，范围 0–1。1 表示不雾化；越小越接近背景雾色。</li>
 </ul>
 <h3>输出尺寸</h3>
-<p>预览边长范围为 64–1024；导出宽度和高度范围为 2–8000。原始 Fortran 版本为了固定帧缓冲区把尺寸限制在 3000 像素；本插件使用动态 NumPy 缓冲区，因此提高到 8000，但尺寸越大，内存占用和渲染时间会按像素数增加。导出时会按 1200 像素参考比例同步缩放轮廓、边界和阴影的像素邻域，因此只改变输出尺寸不会明显改变整体风格。</p>
+<p>预览边长范围为 64–1024；导出宽度和高度范围为 2–8000。原始 Fortran 版本为了固定帧缓冲区把尺寸限制在 3000 像素；本插件使用动态 NumPy 缓冲区，因此提高到 8000，但尺寸越大，内存占用和渲染时间会按像素数增加。导出时会按 1200 像素参考比例同步缩放轮廓、边界和阴影的像素邻域，因此只改变输出尺寸不会明显改变整体风格。小于 1200 像素宽的图像会先按 1200 像素渲染，再用面积平均缩小，所以小图的轮廓粗细与 1200 像素时一致；预览使用同样的方式，所见即所得。</p>
 """
 
 UI_TEXT = {
@@ -99,6 +99,8 @@ UI_TEXT = {
         "adjust_scene": "Also adjust scene",
         "adjust_scene_tooltip": "Also hide hydrogens, set a white background, soft lighting, and ChimeraX silhouettes when applying a color preset.",
         "capture_locked": "Snapshot is locked; unlock it to capture again",
+        "size_hint": "Preview {preview_min}–{preview_max} px · Export {export_min}–{export_max} px. Exports keep the 1200 px look at every size.",
+        "size_clamped": "{name} must be {low}–{high} px; using {value}",
         "preview_tooltip": "Preview edge length, 64–1024. The 512-pixel default balances clarity and interactive speed.",
         "width_tooltip": "PNG width, 2–8000. Larger images require more rendering time and memory.",
         "height_tooltip": "PNG height, 2–8000. Larger images require more rendering time and memory.",
@@ -154,6 +156,8 @@ UI_TEXT = {
         "adjust_scene": "同时调整场景",
         "adjust_scene_tooltip": "应用配色时同时隐藏氢原子，并设置白色背景、柔和光照和 ChimeraX 轮廓线。",
         "capture_locked": "快照已锁定；请先解锁再捕获",
+        "size_hint": "预览 {preview_min}–{preview_max} 像素 · 导出 {export_min}–{export_max} 像素。任意导出尺寸都保持 1200 像素时的样式。",
+        "size_clamped": "{name}须在 {low}–{high} 像素之间，已改为 {value}",
         "preview_tooltip": "预览边长范围 64–1024。默认 512，在清晰度和交互速度之间取得平衡。",
         "width_tooltip": "导出 PNG 的宽度，范围 2–8000。尺寸越大，渲染越慢、占用内存越多。",
         "height_tooltip": "导出 PNG 的高度，范围 2–8000。尺寸越大，渲染越慢、占用内存越多。",

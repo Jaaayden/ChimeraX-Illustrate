@@ -42,7 +42,9 @@ class TranslationTests(unittest.TestCase):
 
     def test_message_templates_format_with_their_named_fields(self):
         samples = {"error": "e", "count": 1, "preset": "p", "path": "x",
-                   "width": 1, "height": 1, "maximum": 8000}
+                   "width": 1, "height": 1, "maximum": 8000, "name": "n", "low": 1,
+                   "high": 2, "value": 1, "preview_min": 1, "preview_max": 2,
+                   "export_min": 1, "export_max": 2}
         for language, table in i18n.UI_TEXT.items():
             for key, template in table.items():
                 with self.subTest(language=language, key=key):

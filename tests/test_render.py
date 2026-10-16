@@ -1,6 +1,7 @@
 import os
 import struct
 import sys
+import random
 import tempfile
 import unittest
 import zlib
@@ -8,6 +9,8 @@ from dataclasses import replace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
+
+import numpy as np
 
 from reference_render import render_python
 from src import render as render_module
@@ -17,10 +20,15 @@ from src.render import (
     RenderScene,
     ViewSnapshot,
     _contour_thresholds,
+    RenderedImage,
     encode_png,
+    reference_render_size,
     render,
+    render_scaled,
+    resample_image,
     save_png,
     scale_style_for_output,
+    view_for_size,
 )
 
 
@@ -314,6 +322,124 @@ class RenderTests(unittest.TestCase):
                 raise AssertionError("unexpected PNG filter")
             pixels.extend(raw[start + 1:start + 1 + row_bytes])
         return bytes(pixels)
+
+
+def _rgba(image):
+    return np.frombuffer(image.rgba, dtype=np.uint8).reshape(
+        image.height, image.width, 4
+    )
+
+
+class ReferenceStyleTests(unittest.TestCase):
+    """Exports of any size keep the look of the 1200 px render."""
+
+    def setUp(self):
+        generator = random.Random(7)
+        self.scene = RenderScene(tuple(
+            AtomRecord(
+                (generator.gauss(0, 14), generator.gauss(0, 14), generator.gauss(0, 14)),
+                (0.7, 0.8, 1.0), 1.7, "m:%d" % (index // 200), index // 6, "CA",
+            )
+            for index in range(1500)
+        ))
+        self.view = ViewSnapshot(pixels_per_angstrom=6.0, auto_center=False)
+        self.style = IllustrationStyle()
+
+    @staticmethod
+    def _ink(image):
+        rgba = _rgba(image).astype(float)
+        alpha = rgba[..., 3] / 255.0
+        return float((alpha * (1.0 - rgba[..., :3].mean(axis=2) / 255.0)).mean())
+
+    def test_reference_render_size(self):
+        self.assertEqual(reference_render_size(1200, 1200), (1200, 1200))
+        self.assertEqual(reference_render_size(4000, 3000), (4000, 3000))
+        self.assertEqual(reference_render_size(600, 300), (1200, 600))
+        self.assertEqual(reference_render_size(2, 2), (1200, 1200))
+        # Too tall to supersample within the render-size limit: render as is.
+        self.assertEqual(reference_render_size(100, 8000), (100, 8000))
+
+    def test_reference_width_is_rendered_directly(self):
+        direct = render(
+            self.scene, view_for_size(self.view, 1200, 512),
+            scale_style_for_output(self.style, 1200, 512), 1200, 1200,
+        )
+        scaled = render_scaled(self.scene, self.view, self.style, 512, 1200, 1200)
+        self.assertEqual(direct.rgba, scaled.rgba)
+
+    def test_small_exports_keep_the_reference_outline_weight(self):
+        reference = self._ink(
+            render_scaled(self.scene, self.view, self.style, 512, 1200, 1200)
+        )
+        self.assertGreater(reference, 0.0)
+        for width in (128, 300, 512, 800):
+            with self.subTest(width=width):
+                image = render_scaled(
+                    self.scene, self.view, self.style, 512, width, width
+                )
+                self.assertEqual((image.width, image.height), (width, width))
+                self.assertAlmostEqual(self._ink(image) / reference, 1.0, delta=0.01)
+
+    def test_small_export_is_the_area_average_of_the_reference_render(self):
+        reference = render_scaled(self.scene, self.view, self.style, 512, 1200, 1200)
+        small = render_scaled(self.scene, self.view, self.style, 512, 300, 300)
+        source = _rgba(reference).astype(float)
+        alpha = source[..., 3:] / 255.0
+        premultiplied = np.concatenate([source[..., :3] / 255.0 * alpha, alpha], axis=2)
+        blocks = premultiplied.reshape(300, 4, 300, 4, 4).mean(axis=(1, 3))
+        expected_alpha = np.clip(np.rint(blocks[..., 3] * 255.0), 0, 255)
+        self.assertLessEqual(
+            np.abs(_rgba(small)[..., 3].astype(float) - expected_alpha).max(), 1.0
+        )
+        covered = blocks[..., 3] > 0.5
+        expected_rgb = np.clip(np.rint(
+            blocks[..., :3] / np.maximum(blocks[..., 3:], 1e-9) * 255.0
+        ), 0, 255)
+        difference = np.abs(_rgba(small)[..., :3].astype(float) - expected_rgb)
+        self.assertLessEqual(difference[covered].max(), 2.0)
+
+    def test_non_square_small_export_has_requested_size(self):
+        image = render_scaled(self.scene, self.view, self.style, 512, 300, 150)
+        self.assertEqual((image.width, image.height), (300, 150))
+
+
+class ResampleTests(unittest.TestCase):
+    @staticmethod
+    def _image(array, background=(1.0, 1.0, 1.0)):
+        height, width = array.shape[:2]
+        return RenderedImage(width, height, array.astype(np.uint8).tobytes(), background)
+
+    def test_constant_image_stays_constant_for_any_ratio(self):
+        array = np.zeros((101, 77, 4), dtype=np.uint8)
+        array[...] = (10, 120, 250, 200)
+        shrunk = resample_image(self._image(array), 31, 17)
+        self.assertTrue((_rgba(shrunk) == (10, 120, 250, 200)).all())
+
+    def test_even_ratio_equals_block_average(self):
+        generator = np.random.default_rng(3)
+        array = generator.integers(0, 256, size=(8, 8, 4))
+        array[..., 3] = 255
+        shrunk = _rgba(resample_image(self._image(array), 4, 4)).astype(float)
+        expected = array.reshape(4, 2, 4, 2, 4).mean(axis=(1, 3))
+        self.assertLessEqual(np.abs(shrunk - np.rint(expected)).max(), 1.0)
+
+    def test_transparent_pixels_do_not_darken_neighbors(self):
+        array = np.zeros((2, 2, 4), dtype=np.uint8)
+        array[0, 0] = (200, 100, 50, 255)           # one opaque pixel
+        array[0, 1] = array[1, 0] = array[1, 1] = (255, 255, 255, 0)
+        pixel = _rgba(resample_image(self._image(array), 1, 1))[0, 0]
+        self.assertEqual(tuple(pixel[:3]), (200, 100, 50))   # color is kept
+        self.assertAlmostEqual(int(pixel[3]), 64, delta=1)   # coverage is 1/4
+
+    def test_fully_transparent_area_takes_the_background(self):
+        array = np.zeros((4, 4, 4), dtype=np.uint8)
+        shrunk = _rgba(resample_image(self._image(array, (0.0, 0.5, 1.0)), 2, 2))
+        self.assertTrue((shrunk[..., 3] == 0).all())
+        self.assertEqual(tuple(shrunk[0, 0, :3]), (0, 128, 255))
+
+    def test_growing_is_rejected(self):
+        with self.assertRaises(ValueError):
+            resample_image(self._image(np.zeros((4, 4, 4))), 8, 8)
 
 
 if __name__ == "__main__":
