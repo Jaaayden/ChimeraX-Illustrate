@@ -45,7 +45,7 @@ _PNG_COMPRESSION_LEVEL = 3
 _PNG_IDAT_CHUNK_SIZE = 1024 * 1024
 # Frames wider or taller than this (after cropping to the occupied region) are
 # post-processed in horizontal tiles to bound peak memory.
-_TILED_RENDER_THRESHOLD = 4096
+_TILED_RENDER_THRESHOLD = 2048
 _TILE_ROWS = 512
 # Depth buffers up to this many pixels are cached between renders so parameter
 # edits that do not move atoms (contours, shadows, fog) skip rasterization.
@@ -55,7 +55,7 @@ _CACHE_MAX_PIXELS = 2048 * 2048
 # neighborhoods) looks as intended.  Smaller images are rendered at this size
 # and averaged down, so their style matches the 1200-pixel one.
 REFERENCE_WIDTH = 1200
-MAX_RENDER_SIZE = 8000
+MAX_RENDER_SIZE = 16000
 
 
 def clear_caches() -> None:
@@ -174,7 +174,7 @@ def scale_style_for_output(style: IllustrationStyle, output_width: int,
 class RenderedImage:
     width: int
     height: int
-    rgba: bytes
+    rgba: bytes  # any read-only bytes-like buffer (bytes or bytearray)
     background: Color
 
     def composited_rgba(self, transparent: bool = True) -> bytes:
@@ -491,28 +491,16 @@ def _expand_cropped_image(image: RenderedImage, full_width: int, full_height: in
 
     if (image.width, image.height) == (full_width, full_height):
         return image
-    background = bytes(
-        max(0, min(255, int(round(channel * 255.0))))
-        for channel in image.background
-    ) + b"\x00"
-    background_row = background * full_width
-    crop_stride = image.width * 4
-    prefix = background * x0
-    suffix = background * (full_width - x0 - image.width)
-    chunks = [background_row] * y0
-    for row in range(image.height):
-        source_start = row * crop_stride
-        chunks.extend((
-            prefix,
-            image.rgba[source_start:source_start + crop_stride],
-            suffix,
-        ))
-    chunks.extend(
-        [background_row] * (full_height - y0 - image.height)
-    )
-    return RenderedImage(
-        full_width, full_height, b"".join(chunks), image.background
-    )
+    np = _np
+    buffer = bytearray(full_width * full_height * 4)
+    canvas = np.frombuffer(buffer, dtype=np.uint8).reshape(full_height, full_width, 4)
+    canvas[...] = [
+        max(0, min(255, int(round(channel * 255.0)))) for channel in image.background
+    ] + [0]
+    canvas[y0:y0 + image.height, x0:x0 + image.width] = np.frombuffer(
+        image.rgba, dtype=np.uint8
+    ).reshape(image.height, image.width, 4)
+    return RenderedImage(full_width, full_height, buffer, image.background)
 
 
 def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: IllustrationStyle,
@@ -715,7 +703,7 @@ def _render_numpy_tiled(scene: RenderScene, view: ViewSnapshot, style: Illustrat
         rgba[..., 3] = np.clip(np.rint(alpha * 255.0), 0.0, 255.0).astype(np.uint8)
         output[y0 * width * 4:y1 * width * 4] = rgba.tobytes()
 
-    return RenderedImage(width, height, bytes(output), style.background)
+    return RenderedImage(width, height, output, style.background)
 
 
 def _render_numpy(scene: RenderScene, view: ViewSnapshot, style: IllustrationStyle,

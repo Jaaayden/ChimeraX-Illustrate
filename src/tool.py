@@ -40,6 +40,8 @@ from .export import (
     MIN_OUTPUT_SIZE,
     MIN_PREVIEW_SIZE,
     check_output_size,
+    estimated_memory_gb,
+    is_large_export,
     render_snapshot_to_png,
 )
 from .i18n import (
@@ -69,6 +71,13 @@ from .scene import capture_scene as capture_chimerax_scene
 
 
 DEFAULT_STYLE = IllustrationStyle()
+# Substituted into every message and help text that mentions a size limit.
+SIZE_LIMITS = {
+    "preview_min": MIN_PREVIEW_SIZE,
+    "preview_max": MAX_PREVIEW_SIZE,
+    "export_min": MIN_OUTPUT_SIZE,
+    "export_max": MAX_OUTPUT_SIZE,
+}
 
 class SizeSpinBox(QSpinBox):
     """Pixel-size box that accepts any number and clamps it to its range.
@@ -342,7 +351,7 @@ class IllustrateTool(ToolInstance):
         return control
 
     def _tr(self, key, **values):
-        return UI_TEXT[self._language][key].format(**values)
+        return UI_TEXT[self._language][key].format(**{**SIZE_LIMITS, **values})
 
     def _toggle_language(self):
         self._language = "zh" if self._language == "en" else "en"
@@ -471,9 +480,11 @@ class IllustrateTool(ToolInstance):
         browser = QTextBrowser()
         browser.setOpenExternalLinks(False)
         browser.setHtml(
-            PARAMETER_HELP_HTML_EN
-            if self._language == "en"
-            else PARAMETER_HELP_HTML_ZH
+            (
+                PARAMETER_HELP_HTML_EN
+                if self._language == "en"
+                else PARAMETER_HELP_HTML_ZH
+            ).format(**SIZE_LIMITS)
         )
         layout.addWidget(browser)
         close_button = QPushButton(self._tr("close"))
@@ -651,6 +662,14 @@ class IllustrateTool(ToolInstance):
             self._capture_width, width, height,
         )
 
+    def _rendering_notice(self, width, height):
+        if is_large_export(width, height):
+            return self._tr(
+                "large_export", width=width, height=height,
+                gb="%.0f" % max(1.0, estimated_memory_gb(width, height)),
+            )
+        return self._tr("rendering", width=width, height=height)
+
     def save_image(self, path, transparent=True, width=None, height=None,
                    wait=False):
         """Export the captured snapshot as a PNG.
@@ -667,8 +686,9 @@ class IllustrateTool(ToolInstance):
             scene, view, style, capture_width, width, height, path,
             bool(transparent),
         )
+        notice = self._rendering_notice(width, height)
         if wait:
-            self._set_status(self._tr("rendering", width=width, height=height))
+            self._set_status(notice)
             try:
                 render_snapshot_to_png(*arguments)
             except Exception as caught:
@@ -679,9 +699,7 @@ class IllustrateTool(ToolInstance):
             return path
         future = self._export_executor.submit(render_snapshot_to_png, *arguments)
         future.add_done_callback(self._deliver_save)
-        self._set_status(
-            self._tr("rendering", width=width, height=height)
-        )
+        self._set_status(notice)
         return None
 
     def _deliver_save(self, future):

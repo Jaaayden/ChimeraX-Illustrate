@@ -44,7 +44,7 @@ PARAMETER_HELP_HTML_ZH = """
 <li><b>前景/背景雾比例</b>：保留原色的比例，范围 0–1。1 表示不雾化；越小越接近背景雾色。</li>
 </ul>
 <h3>输出尺寸</h3>
-<p>预览边长范围为 64–1024；导出宽度和高度范围为 2–8000。原始 Fortran 版本为了固定帧缓冲区把尺寸限制在 3000 像素；本插件使用动态 NumPy 缓冲区，因此提高到 8000，但尺寸越大，内存占用和渲染时间会按像素数增加。导出时会按 1200 像素参考比例同步缩放轮廓、边界和阴影的像素邻域，因此只改变输出尺寸不会明显改变整体风格。小于 1200 像素宽的图像会先按 1200 像素渲染，再用面积平均缩小，所以小图的轮廓粗细与 1200 像素时一致；预览使用同样的方式，所见即所得。</p>
+<p>预览边长范围为 {preview_min}–{preview_max}；导出宽度和高度范围为 {export_min}–{export_max}。原始 Fortran 版本为了固定帧缓冲区把尺寸限制在 3000 像素；本插件使用动态 NumPy 缓冲区，因此提高到 {export_max}，但尺寸越大，内存占用和渲染时间会按像素数增加（16000×16000 约需 6–8 GB 内存和数分钟）。导出时会按 1200 像素参考比例同步缩放轮廓、边界和阴影的像素邻域，因此只改变输出尺寸不会明显改变整体风格。小于 1200 像素宽的图像会先按 1200 像素渲染，再用面积平均缩小，所以小图的轮廓粗细与 1200 像素时一致；预览使用同样的方式，所见即所得。</p>
 """
 
 UI_TEXT = {
@@ -87,6 +87,7 @@ UI_TEXT = {
         "preview_updated": "Preview updated",
         "save_dialog": "Export Illustrate PNG",
         "rendering": "Rendering {width}×{height} PNG in the background",
+        "large_export": "Rendering {width}×{height} PNG: large image, about {gb} GB of memory and possibly several minutes",
         "help_title": "Illustrate Parameter Help",
         "close": "Close",
         "need_capture": "Capture a ChimeraX scene before exporting",
@@ -101,9 +102,9 @@ UI_TEXT = {
         "capture_locked": "Snapshot is locked; unlock it to capture again",
         "size_hint": "Preview {preview_min}–{preview_max} px · Export {export_min}–{export_max} px. Exports keep the 1200 px look at every size.",
         "size_clamped": "{name} must be {low}–{high} px; using {value}",
-        "preview_tooltip": "Preview edge length, 64–1024. The 512-pixel default balances clarity and interactive speed.",
-        "width_tooltip": "PNG width, 2–8000. Larger images require more rendering time and memory.",
-        "height_tooltip": "PNG height, 2–8000. Larger images require more rendering time and memory.",
+        "preview_tooltip": "Preview edge length, {preview_min}–{preview_max}. The 512-pixel default balances clarity and interactive speed.",
+        "width_tooltip": "PNG width, {export_min}–{export_max}. Larger images require more rendering time and memory.",
+        "height_tooltip": "PNG height, {export_min}–{export_max}. Larger images require more rendering time and memory.",
     },
     "zh": {
         "capture": "捕获当前场景",
@@ -144,6 +145,7 @@ UI_TEXT = {
         "preview_updated": "预览已更新",
         "save_dialog": "导出 Illustrate PNG",
         "rendering": "正在后台渲染 {width}×{height} PNG",
+        "large_export": "正在渲染 {width}×{height} PNG：图像很大，约需 {gb} GB 内存，可能需要数分钟",
         "help_title": "Illustrate 参数说明",
         "close": "关闭",
         "need_capture": "导出前请先捕获 ChimeraX 场景",
@@ -158,9 +160,9 @@ UI_TEXT = {
         "capture_locked": "快照已锁定；请先解锁再捕获",
         "size_hint": "预览 {preview_min}–{preview_max} 像素 · 导出 {export_min}–{export_max} 像素。任意导出尺寸都保持 1200 像素时的样式。",
         "size_clamped": "{name}须在 {low}–{high} 像素之间，已改为 {value}",
-        "preview_tooltip": "预览边长范围 64–1024。默认 512，在清晰度和交互速度之间取得平衡。",
-        "width_tooltip": "导出 PNG 的宽度，范围 2–8000。尺寸越大，渲染越慢、占用内存越多。",
-        "height_tooltip": "导出 PNG 的高度，范围 2–8000。尺寸越大，渲染越慢、占用内存越多。",
+        "preview_tooltip": "预览边长范围 {preview_min}–{preview_max}。默认 512，在清晰度和交互速度之间取得平衡。",
+        "width_tooltip": "导出 PNG 的宽度，范围 {export_min}–{export_max}。尺寸越大，渲染越慢、占用内存越多。",
+        "height_tooltip": "导出 PNG 的高度，范围 {export_min}–{export_max}。尺寸越大，渲染越慢、占用内存越多。",
     },
 }
 
@@ -250,8 +252,8 @@ occlusion strength, spread, depth sensitivity, and minimum brightness.</li>
 blend toward the fog color.</li>
 </ul>
 <h3>Output</h3>
-<p>The preview range is 64–1024 pixels; 512 is the default balance of clarity
-and speed. PNG dimensions range from 2–8000 pixels. Pixel-based neighborhoods
+<p>The preview range is {preview_min}–{preview_max} pixels; 512 is the default balance of clarity
+and speed. PNG dimensions range from {export_min}–{export_max} pixels (a 16000 × 16000 image needs about 6–8 GB of memory and several minutes). Pixel-based neighborhoods
 are scaled from the 1200-pixel reference, so changing output size does not
 substantially change the illustration style.</p>
 """

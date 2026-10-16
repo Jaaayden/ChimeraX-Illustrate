@@ -20,7 +20,7 @@ This repository contains only the plugin software, documentation, tests, and lic
 - English is the default interface language, with one-click switching to Chinese.
 - Parameters are grouped into three columns for contours, boundaries, and atoms/shadows/fog.
 - Transparent or opaque PNG export.
-- Output width and height from 2 to 8000 pixels; large exports use tiled processing. Every size keeps the look of the 1200-pixel render: images narrower than 1200 pixels are rendered at 1200 pixels and shrunk by area averaging, and the preview works the same way. Out-of-range size entries are clamped with a status message.
+- Preview edge up to 2048 pixels and output width and height from 2 to 16000 pixels; images above 2048 pixels use tiled processing. Very large exports are heavy (about 8000 × 8000: 2 GB and under a minute; 16000 × 16000: about 6–8 GB and several minutes for a 20,000-atom scene), so a notice is shown before they start. Every size keeps the look of the 1200-pixel render: images narrower than 1200 pixels are rendered at 1200 pixels and shrunk by area averaging, and the preview works the same way. Out-of-range size entries are clamped with a status message.
 - Raster/shadow caches, active-region cropping, vectorized NumPy rasterization, and multicore shadow processing accelerate previews and high-resolution exports; PNG compositing, compression, and writing are streamed off the ChimeraX UI thread.
 - Built-in parameter explanations, practical ranges, and a reset-to-default action.
 
@@ -67,7 +67,7 @@ devel build ~/ChimeraX-Illustrate
 If you have downloaded or built a `.whl` file, install it from the ChimeraX command line with `toolshed install`. For example, after placing the wheel in `~/Downloads`, run:
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.21-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.22-py3-none-any.whl
 ```
 
 Restart ChimeraX after installation, then run `illustrate`.

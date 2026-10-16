@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 from .render import (
+    MAX_RENDER_SIZE,
     IllustrationStyle,
     RenderScene,
     ViewSnapshot,
@@ -21,11 +22,15 @@ from .scene import WARNING_NO_ATOMS, WARNING_PERSPECTIVE, capture_scene
 
 DEFAULT_PREVIEW_SIZE = 512
 MIN_PREVIEW_SIZE = 64
-MAX_PREVIEW_SIZE = 1024
+MAX_PREVIEW_SIZE = 2048
 DEFAULT_OUTPUT_WIDTH = 1200
 DEFAULT_OUTPUT_HEIGHT = 1200
 MIN_OUTPUT_SIZE = 2
-MAX_OUTPUT_SIZE = 8000
+MAX_OUTPUT_SIZE = MAX_RENDER_SIZE
+# Images with more pixels than this get a memory/time notice before rendering.
+LARGE_EXPORT_PIXELS = 36_000_000
+# Measured peak memory of the renderer plus PNG writer, per output pixel.
+_PEAK_BYTES_PER_PIXEL = 32  # measured 24-34, rounded up
 
 WARNING_TEXT = {
     WARNING_NO_ATOMS: (
@@ -39,6 +44,16 @@ WARNING_TEXT = {
 
 class ExportError(ValueError):
     """Raised for an export request that cannot be fulfilled."""
+
+
+def is_large_export(width: int, height: int) -> bool:
+    return width * height > LARGE_EXPORT_PIXELS
+
+
+def estimated_memory_gb(width: int, height: int) -> float:
+    """Rough peak memory, in GiB, for rendering and writing a ``width`` x ``height`` PNG."""
+
+    return width * height * _PEAK_BYTES_PER_PIXEL / float(1 << 30)
 
 
 def check_output_size(width: int, height: int) -> Optional[str]:

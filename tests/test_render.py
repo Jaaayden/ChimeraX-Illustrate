@@ -330,6 +330,20 @@ def _rgba(image):
     )
 
 
+class CropExpansionTests(unittest.TestCase):
+    def test_crop_is_placed_in_a_background_frame_without_copies_of_bytes(self):
+        crop = np.zeros((2, 3, 4), dtype=np.uint8)
+        crop[...] = (9, 8, 7, 255)
+        image = RenderedImage(3, 2, crop.tobytes(), (1.0, 0.0, 0.5))
+        full = render_module._expand_cropped_image(image, 6, 5, 2, 1)
+        array = _rgba(full)
+        self.assertEqual((full.width, full.height), (6, 5))
+        self.assertTrue((array[1:3, 2:5] == (9, 8, 7, 255)).all())
+        outside = array.copy()
+        outside[1:3, 2:5] = (255, 0, 128, 0)
+        self.assertTrue((outside == (255, 0, 128, 0)).all())
+
+
 class ReferenceStyleTests(unittest.TestCase):
     """Exports of any size keep the look of the 1200 px render."""
 
@@ -357,7 +371,7 @@ class ReferenceStyleTests(unittest.TestCase):
         self.assertEqual(reference_render_size(600, 300), (1200, 600))
         self.assertEqual(reference_render_size(2, 2), (1200, 1200))
         # Too tall to supersample within the render-size limit: render as is.
-        self.assertEqual(reference_render_size(100, 8000), (100, 8000))
+        self.assertEqual(reference_render_size(100, 16000), (100, 16000))
 
     def test_reference_width_is_rendered_directly(self):
         direct = render(
