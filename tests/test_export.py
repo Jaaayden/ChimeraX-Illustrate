@@ -8,10 +8,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
 from src.export import (
+    LARGE_EXPORT_PIXELS,
     MAX_OUTPUT_SIZE,
+    MAX_PREVIEW_SIZE,
     ExportError,
     check_output_size,
+    estimated_memory_gb,
     export_png,
+    is_large_export,
     render_snapshot_to_png,
 )
 from src.render import (
@@ -38,6 +42,19 @@ class OutputSizeTests(unittest.TestCase):
         self.assertEqual(check_output_size(1, 500), "minimum_size")
         self.assertEqual(check_output_size(500, 1), "minimum_size")
         self.assertEqual(check_output_size(MAX_OUTPUT_SIZE + 1, 500), "maximum_size")
+
+    def test_limits_are_consistent(self):
+        self.assertGreaterEqual(MAX_OUTPUT_SIZE, 16000)
+        self.assertGreaterEqual(MAX_PREVIEW_SIZE, 2048)
+
+    def test_large_export_notice_and_memory_estimate(self):
+        self.assertFalse(is_large_export(1200, 1200))
+        self.assertFalse(is_large_export(6000, 6000))
+        self.assertTrue(is_large_export(6001, 6000))
+        self.assertGreater(LARGE_EXPORT_PIXELS, 1200 * 1200)
+        # A 16000 x 16000 image needs several GB; a 1200 x 1200 one well under 1.
+        self.assertGreater(estimated_memory_gb(16000, 16000), 5.0)
+        self.assertLess(estimated_memory_gb(1200, 1200), 0.1)
 
     def test_view_scales_with_output_width(self):
         view = ViewSnapshot(pixels_per_angstrom=10.0)

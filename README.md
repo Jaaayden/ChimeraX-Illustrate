@@ -20,7 +20,7 @@ Illustrate for ChimeraX 是一个 ChimeraX bundle，将当前 ChimeraX 场景转
 - 默认英文界面，可在工具窗口中一键切换为中文。
 - 参数按轮廓、边界、原子/阴影/雾化分为三列，减少滚动并提高空间利用率。
 - 透明或不透明 PNG 导出。
-- 支持 2–8000 像素的导出宽度和高度；大尺寸导出使用分块处理。任何尺寸都保持 1200 像素渲染时的样式：宽度小于 1200 的图像先按 1200 像素渲染，再用面积平均缩小，预览同理；尺寸输入超出范围时会自动限幅并在状态栏提示。
+- 预览边长最大 2048 像素，导出宽度和高度支持 2–16000 像素；超过 2048 像素的图像使用分块处理。超大导出很吃资源（约 8000×8000：2 GB、不到 1 分钟；16000×16000：约 6–8 GB、数分钟），开始前会在状态栏提示。任何尺寸都保持 1200 像素渲染时的样式：宽度小于 1200 的图像先按 1200 像素渲染，再用面积平均缩小，预览同理；尺寸输入超出范围时会自动限幅并在状态栏提示。
 - 使用栅格/阴影缓存、有效区域裁剪、NumPy 向量化和多核阴影计算加速预览及高分辨率导出；PNG 在后台分块合成、压缩和写盘，不阻塞 ChimeraX 界面。
 - 提供参数说明、实用范围和默认参数恢复功能。
 
@@ -67,7 +67,7 @@ devel build ~/ChimeraX-Illustrate
 如果已经下载或构建了 `.whl` 文件，可在 ChimeraX 命令行中使用 `toolshed install` 安装。例如，将 wheel 放在 `~/Downloads` 后执行：
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.21-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.22-py3-none-any.whl
 ```
 
 安装后重启 ChimeraX，再输入 `illustrate`。

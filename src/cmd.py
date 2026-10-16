@@ -7,7 +7,9 @@ from chimerax.core.commands import (
 )
 from chimerax.core.errors import UserError
 
-from .export import WARNING_TEXT, ExportError, export_png
+from .export import (
+    WARNING_TEXT, ExportError, estimated_memory_gb, export_png, is_large_export,
+)
 
 ACTIONS = ("show", "open", "capture", "reset", "save")
 
@@ -66,6 +68,13 @@ def _save(session, filename, transparent, width, height, prefer_atom_colors):
     if not filename:
         raise UserError("illustrate save requires a PNG filename")
     path = os.path.expanduser(filename)
+    if width and height and is_large_export(width, height):
+        session.logger.info(
+            "Rendering a %d x %d image needs about %.0f GB of memory and may "
+            "take several minutes" % (
+                width, height, max(1.0, estimated_memory_gb(width, height))
+            )
+        )
     tool = _find_tool(session)
     try:
         if tool is not None and tool.has_snapshot():

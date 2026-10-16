@@ -42,13 +42,15 @@ detail and interactive updates, and the preview display remains height-bounded
 so opening the tool does not force the ChimeraX window off-screen. The
 <b>Parameter Help</b> button and control tooltips describe each
 parameter, practical ranges, and how larger or smaller values affect the image.
-Export width and height accept 2–8000 pixels. The original Fortran program
+Export width and height accept 2–16000 pixels (the preview edge up to 2048);
+a 16000 &times; 16000 export needs about 6&ndash;8 GB of memory and several minutes,
+and a notice is shown before very large exports start. The original Fortran program
 used a fixed 3000-pixel frame buffer; this bundle uses dynamic NumPy buffers
 and scales the pixel-based contour, boundary, and shadow neighborhoods from a
 1200-pixel reference so changing the export size does not substantially change
 the visual style. Images narrower than 1200 pixels are rendered at 1200 pixels
 and shrunk by area averaging, so small exports (and the preview) keep the
-1200-pixel outline weight. Exports above 4096 pixels are processed in row tiles to avoid
+1200-pixel outline weight. Images above 2048 pixels are processed in row tiles to avoid
 constructing several full-frame temporary arrays at once; larger images still
 require more time and memory. Raster and shadow results are cached, transparent
 regions are excluded from post-processing, sphere rasterization is vectorized,
