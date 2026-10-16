@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 from chimerax.core.errors import UserError
 from chimerax.core.tools import ToolInstance
@@ -31,284 +31,44 @@ from Qt.QtWidgets import (
     QWidget,
 )
 
+from .export import (
+    DEFAULT_OUTPUT_HEIGHT,
+    DEFAULT_OUTPUT_WIDTH,
+    DEFAULT_PREVIEW_SIZE,
+    MAX_OUTPUT_SIZE,
+    MIN_OUTPUT_SIZE,
+    check_output_size,
+    render_snapshot_to_png,
+    view_for_size,
+)
+from .i18n import (
+    PALETTE_LABELS,
+    PARAMETER_HELP_HTML_EN,
+    PARAMETER_HELP_HTML_ZH,
+    PARAMETER_LABELS,
+    PARAMETER_TOOLTIPS_EN,
+    PARAMETER_TOOLTIPS_ZH,
+    UI_TEXT,
+)
+from .palette import (
+    apply_chain_palette as color_chains,
+    available_palette_presets,
+    preset_prefers_atom_colors,
+)
 from .render import (
     IllustrationStyle,
     RenderScene,
     RenderedImage,
     ViewSnapshot,
+    clear_caches,
     render,
-    save_png,
     scale_style_for_output,
 )
+from .scene import WARNING_PERSPECTIVE
 from .scene import capture_scene as capture_chimerax_scene
-from .palette import apply_chain_palette as color_chains
 
 
 DEFAULT_STYLE = IllustrationStyle()
-DEFAULT_PREVIEW_SIZE = 512
-DEFAULT_OUTPUT_WIDTH = 1200
-DEFAULT_OUTPUT_HEIGHT = 1200
-MAX_OUTPUT_SIZE = 8000
-
-PARAMETER_TOOLTIPS_ZH = {
-    "contour_low": "轮廓开始出现的敏感度。常用 1–10；越小越容易出现轮廓。",
-    "contour_high": "轮廓达到最强的阈值。常用 5–20；越大通常轮廓越少、越淡。",
-    "contour_depth_min": "参与轮廓计算的最小深度差。0 会保留更多细节；常用 0–1。",
-    "contour_depth_max": "深度差的上限。0–5 常用于原子级轮廓，0–1000 更接近整体轮廓。",
-    "subunit_low": "亚基边界开始变黑的阈值。常用 3–20；越小边界越容易出现。",
-    "subunit_high": "亚基边界达到最强的阈值。常用 8–20；越大边界越少、越淡。",
-    "residue_low": "残基边界开始变黑的阈值。常用 3–20；越小边界越容易出现。",
-    "residue_high": "残基边界达到最强的阈值。常用 8–20；越大边界越少、越淡。",
-    "residue_difference": "触发残基边界所需的编号差。越大只保留更大的残基间隔。",
-    "radius_scale": "原子球半径倍率。1.0 为 ChimeraX 当前半径；更大更粗。",
-    "shadow_contribution": "每个遮挡采样对阴影的贡献。越大阴影越明显；常用 0–0.05。",
-    "shadow_cone_angle": "阴影锥角。越大阴影范围通常越窄；常用 1–5。",
-    "shadow_depth": "产生阴影所需的深度差。越小越容易产生阴影。",
-    "shadow_maximum": "阴影亮度下限。越小阴影越黑；范围 0–1。",
-    "fog_front": "前景保留原色的比例。1 表示不变；越小越偏向雾色。",
-    "fog_back": "背景保留原色的比例。1 表示不变；越小远处越淡。",
-}
-
-PARAMETER_HELP_HTML_ZH = """
-<h2>Illustrate 参数说明</h2>
-<p>参数修改只影响当前捕获快照，不会修改 ChimeraX 中的模型、颜色或视角。</p>
-<h3>轮廓与边界</h3>
-<ul>
-<li><b>轮廓低阈值</b>：轮廓开始出现的敏感度。常用 1–10；越小越容易出现轮廓。</li>
-<li><b>轮廓高阈值</b>：轮廓达到最强的阈值。常用 5–20；越大通常轮廓越少、越淡。低、高阈值距离越窄，轮廓对比越强，也可能更锯齿。</li>
-<li><b>轮廓等级</b>：范围 1–4。1/2 使用像素深度导数，3/4 使用归一化邻域深度差；等级越高越平滑。默认 4，与 Illustrate 参考输入一致。插件会自动校准 3/4 的响应范围，避免只剩外围轮廓。</li>
-<li><b>轮廓深度最小差</b>：参与计算的最小深度差。0 会保留更多细节；常用 0–1。</li>
-<li><b>轮廓深度最大差</b>：深度差上限。0–5 常用于原子级轮廓；0–1000 更接近只描绘整体分子外轮廓。</li>
-<li><b>亚基低/高阈值</b>：亚基边界从出现到变黑的范围。常用 3–20；降低低阈值会增加边界。</li>
-<li><b>残基低/高阈值</b>：残基边界从出现到变黑的范围。常用 3–20；降低低阈值会增加边界。</li>
-<li><b>残基编号差</b>：触发残基边界所需的编号差。越大只保留更大的残基间隔。</li>
-</ul>
-<h3>原子、阴影与雾化</h3>
-<ul>
-<li><b>原子半径倍率</b>：1.0 表示使用 ChimeraX 当前半径；更大更粗，常用 0.8–1.5。</li>
-<li><b>启用软阴影</b>：打开或关闭深度阴影。</li>
-<li><b>阴影贡献</b>：每个遮挡采样的强度。越大阴影越明显；常用 0–0.05。</li>
-<li><b>阴影锥角</b>：阴影扩散范围。越大阴影通常越窄；常用 1–5。</li>
-<li><b>阴影深度</b>：产生阴影所需的深度差。越小越容易出现阴影。</li>
-<li><b>阴影下限</b>：阴影最低亮度，范围 0–1。越小越黑。</li>
-<li><b>前景/背景雾比例</b>：保留原色的比例，范围 0–1。1 表示不雾化；越小越接近背景雾色。</li>
-</ul>
-<h3>输出尺寸</h3>
-<p>预览边长范围为 64–1024；导出宽度和高度范围为 2–8000。原始 Fortran 版本为了固定帧缓冲区把尺寸限制在 3000 像素；本插件使用动态 NumPy 缓冲区，因此提高到 8000，但尺寸越大，内存占用和渲染时间会按像素数增加。导出时会按 1200 像素参考比例同步缩放轮廓、边界和阴影的像素邻域，因此只改变输出尺寸不会明显改变整体风格。</p>
-"""
-
-UI_TEXT = {
-    "en": {
-        "capture": "Capture Current Scene",
-        "save": "Export PNG",
-        "reset": "Reset Defaults",
-        "help": "Parameter Help",
-        "language": "中文",
-        "palette_label": "Color preset",
-        "apply_palette": "Apply Colors",
-        "lock": "Lock Snapshot",
-        "transparent": "Transparent Background",
-        "preview_empty": "Capture a ChimeraX scene to begin",
-        "size_group": "Output Size",
-        "preview_size": "Preview",
-        "output_width": "Width",
-        "output_height": "Height",
-        "contour_group": "Contours",
-        "boundary_group": "Boundaries",
-        "shading_group": "Atoms, Shadows and Fog",
-        "shadow_enabled": "Enable Soft Shadows",
-        "status_waiting": "Waiting for scene capture",
-        "status_locked": "Snapshot locked",
-        "status_unlocked": "Snapshot unlocked",
-        "status_reset": "Default parameters restored",
-        "status_language": "Interface language: English",
-        "capture_failed": "Capture failed: {error}",
-        "capture_empty": "No visible atoms, cartoons, or molecular surfaces were captured",
-        "captured": "Captured {count} atoms from atom/cartoon/surface",
-        "perspective_warning": "Perspective camera detected; the Illustrate preview is orthographic",
-        "palette_failed": "Color preset failed: {error}",
-        "palette_empty": "No atomic model is available for coloring",
-        "palette_done": "Applied “{preset}” to {count} components; capture the scene again",
-        "snapshot_empty": "Capture a ChimeraX scene to begin",
-        "snapshot_cleared": "Snapshot cleared",
-        "render_failed": "Render failed: {error}",
-        "save_failed": "Save failed: {error}",
-        "saved": "Saved {path}",
-        "preview_updated": "Preview updated",
-        "save_dialog": "Export Illustrate PNG",
-        "rendering": "Rendering {width}×{height} PNG in the background",
-        "help_title": "Illustrate Parameter Help",
-        "close": "Close",
-        "need_capture": "Capture a ChimeraX scene before exporting",
-        "invalid_scene": "No exportable scene; show atoms, cartoons, or surfaces and capture again",
-        "minimum_size": "PNG dimensions must be at least 2 pixels",
-        "maximum_size": "PNG dimensions must not exceed {maximum} pixels",
-        "palette_tooltip": "Choose an illustration-oriented preset, apply it to open atomic models, then capture the scene again.",
-        "preview_tooltip": "Preview edge length, 64–1024. The 512-pixel default balances clarity and interactive speed.",
-        "width_tooltip": "PNG width, 2–8000. Larger images require more rendering time and memory.",
-        "height_tooltip": "PNG height, 2–8000. Larger images require more rendering time and memory.",
-    },
-    "zh": {
-        "capture": "捕获当前场景",
-        "save": "导出 PNG",
-        "reset": "恢复默认参数",
-        "help": "参数说明",
-        "language": "English",
-        "palette_label": "配色方案",
-        "apply_palette": "应用配色",
-        "lock": "锁定快照",
-        "transparent": "透明背景",
-        "preview_empty": "请先捕获一个 ChimeraX 场景",
-        "size_group": "输出尺寸",
-        "preview_size": "预览边长",
-        "output_width": "导出宽度",
-        "output_height": "导出高度",
-        "contour_group": "轮廓",
-        "boundary_group": "亚基与残基边界",
-        "shading_group": "原子、阴影与雾化",
-        "shadow_enabled": "启用软阴影",
-        "status_waiting": "等待捕获场景",
-        "status_locked": "快照已锁定",
-        "status_unlocked": "快照已解锁",
-        "status_reset": "已恢复默认参数",
-        "status_language": "界面语言：中文",
-        "capture_failed": "捕获失败：{error}",
-        "capture_empty": "没有捕获到可见原子、cartoon 或 molecular surface",
-        "captured": "已捕获 {count} 个原子（来自 atom/cartoon/surface）",
-        "perspective_warning": "当前相机为透视投影；Illustrate 预览使用正交投影",
-        "palette_failed": "配色失败：{error}",
-        "palette_empty": "没有可配色的原子模型",
-        "palette_done": "已将“{preset}”应用到 {count} 个组分；请重新捕获场景",
-        "snapshot_empty": "请先捕获一个 ChimeraX 场景",
-        "snapshot_cleared": "已清除快照",
-        "render_failed": "渲染失败：{error}",
-        "save_failed": "保存失败：{error}",
-        "saved": "已保存 {path}",
-        "preview_updated": "预览已更新",
-        "save_dialog": "导出 Illustrate PNG",
-        "rendering": "正在后台渲染 {width}×{height} PNG",
-        "help_title": "Illustrate 参数说明",
-        "close": "关闭",
-        "need_capture": "导出前请先捕获 ChimeraX 场景",
-        "invalid_scene": "没有可导出的场景；请显示 atom、cartoon 或 surface 后重新捕获",
-        "minimum_size": "PNG 尺寸不能小于 2 像素",
-        "maximum_size": "PNG 尺寸不能超过 {maximum} 像素",
-        "palette_tooltip": "选择适合插图的配色方案，应用到当前原子模型，然后重新捕获场景。",
-        "preview_tooltip": "预览边长范围 64–1024。默认 512，在清晰度和交互速度之间取得平衡。",
-        "width_tooltip": "导出 PNG 的宽度，范围 2–8000。尺寸越大，渲染越慢、占用内存越多。",
-        "height_tooltip": "导出 PNG 的高度，范围 2–8000。尺寸越大，渲染越慢、占用内存越多。",
-    },
-}
-
-PARAMETER_LABELS = {
-    "en": {
-        "contour_low": "Low threshold",
-        "contour_high": "High threshold",
-        "contour_kernel": "Contour level",
-        "contour_depth_min": "Minimum depth",
-        "contour_depth_max": "Maximum depth",
-        "subunit_low": "Subunit low",
-        "subunit_high": "Subunit high",
-        "residue_low": "Residue low",
-        "residue_high": "Residue high",
-        "residue_difference": "Residue difference",
-        "radius_scale": "Atom radius scale",
-        "shadow_contribution": "Shadow contribution",
-        "shadow_cone_angle": "Shadow cone angle",
-        "shadow_depth": "Shadow depth",
-        "shadow_maximum": "Shadow floor",
-        "fog_front": "Front fog fraction",
-        "fog_back": "Back fog fraction",
-    },
-    "zh": {
-        "contour_low": "轮廓低阈值",
-        "contour_high": "轮廓高阈值",
-        "contour_kernel": "轮廓等级",
-        "contour_depth_min": "轮廓深度最小差",
-        "contour_depth_max": "轮廓深度最大差",
-        "subunit_low": "亚基低阈值",
-        "subunit_high": "亚基高阈值",
-        "residue_low": "残基低阈值",
-        "residue_high": "残基高阈值",
-        "residue_difference": "残基编号差",
-        "radius_scale": "原子半径倍率",
-        "shadow_contribution": "阴影贡献",
-        "shadow_cone_angle": "阴影锥角",
-        "shadow_depth": "阴影深度",
-        "shadow_maximum": "阴影下限",
-        "fog_front": "前景雾比例",
-        "fog_back": "背景雾比例",
-    },
-}
-
-PARAMETER_TOOLTIPS_EN = {
-    "contour_low": "Contour onset. Typical 1–10; lower values reveal more outlines.",
-    "contour_high": "Full contour strength. Typical 5–20; higher values make contours lighter or less frequent.",
-    "contour_kernel": "Contour level 1–4. Level 4 is the smooth reference-style default.",
-    "contour_depth_min": "Smallest depth difference used for contours. Typical 0–1.",
-    "contour_depth_max": "Depth-difference cap. Typical 0–5 for atom-level contours.",
-    "subunit_low": "Subunit-boundary onset. Typical 3–20; lower values reveal more boundaries.",
-    "subunit_high": "Full subunit-boundary strength. Typical 8–20.",
-    "residue_low": "Residue-boundary onset. Typical 3–20.",
-    "residue_high": "Full residue-boundary strength. Typical 8–20.",
-    "residue_difference": "Residue-number gap needed to trigger a boundary.",
-    "radius_scale": "Atomic sphere radius multiplier. 1.0 uses the captured ChimeraX radius.",
-    "shadow_contribution": "Contribution of each occluding shadow sample. Typical 0–0.05.",
-    "shadow_cone_angle": "Shadow cone spread. Larger values usually produce narrower shadows.",
-    "shadow_depth": "Minimum depth difference needed to cast a shadow.",
-    "shadow_maximum": "Minimum brightness under shadow, 0–1. Lower is darker.",
-    "fog_front": "Front color fraction, 0–1. Lower values move toward the fog color.",
-    "fog_back": "Back color fraction, 0–1. Lower values fade distant atoms.",
-}
-
-PARAMETER_HELP_HTML_EN = """
-<h2>Illustrate Parameter Guide</h2>
-<p>Parameter changes affect only the captured snapshot and do not modify the
-original ChimeraX model, colors, or camera.</p>
-<h3>Contours and boundaries</h3>
-<ul>
-<li><b>Low/high threshold</b>: control when contours begin and reach full
-strength. Lower low-threshold values reveal more lines; larger high-threshold
-values usually make them lighter.</li>
-<li><b>Contour level</b>: 1–4. Levels 1/2 are sharper; levels 3/4 use
-normalized neighborhood depth differences. Level 4 is the reference default.</li>
-<li><b>Minimum/maximum depth</b>: depth-difference interval used by contour
-detection. A practical atom-level range is 0–5.</li>
-<li><b>Subunit and residue thresholds</b>: control internal group boundaries.
-The residue difference sets the sequence-number gap needed to trigger one.</li>
-</ul>
-<h3>Atoms, shadows, and fog</h3>
-<ul>
-<li><b>Atom radius scale</b>: 1.0 uses the captured ChimeraX radius.</li>
-<li><b>Shadow contribution, cone angle, depth, and floor</b>: control soft
-occlusion strength, spread, depth sensitivity, and minimum brightness.</li>
-<li><b>Front/back fog fraction</b>: 1 retains the original color; lower values
-blend toward the fog color.</li>
-</ul>
-<h3>Output</h3>
-<p>The preview range is 64–1024 pixels; 512 is the default balance of clarity
-and speed. PNG dimensions range from 2–8000 pixels. Pixel-based neighborhoods
-are scaled from the 1200-pixel reference, so changing output size does not
-substantially change the illustration style.</p>
-"""
-
-PALETTE_LABELS = {
-    "en": {
-        "classic": "Classic Chains",
-        "cool_warm": "Cool / Warm Complex",
-        "ribosome": "Nucleic Base Contrast",
-        "functional": "MotM Spectrum",
-        "monochrome": "Monochrome Blues",
-    },
-    "zh": {
-        "classic": "经典链配色",
-        "cool_warm": "冷暖复合物",
-        "ribosome": "核酸碱基对比",
-        "functional": "月度分子光谱",
-        "monochrome": "单色蓝系列",
-    },
-}
-
 
 class IllustrateTool(ToolInstance):
     SESSION_ENDURING = False
@@ -324,8 +84,15 @@ class IllustrateTool(ToolInstance):
         self._capture_width = DEFAULT_PREVIEW_SIZE
         self._capture_height = DEFAULT_PREVIEW_SIZE
         self._generation = 0
+        # Previews and exports use separate workers so a long export never
+        # blocks the live preview, and the export result does not depend on
+        # the preview generation counter.
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="illustrate")
+        self._export_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="illustrate-export"
+        )
         self._preview_future: Optional[Future] = None
+        self._closed = False
         self._locked = False
         self._float_controls: Dict[str, QDoubleSpinBox] = {}
         self._parameter_labels: Dict[str, QLabel] = {}
@@ -363,13 +130,17 @@ class IllustrateTool(ToolInstance):
         self.palette_label = QLabel()
         palette_row.addWidget(self.palette_label)
         self.palette_combo = QComboBox()
-        for preset in PALETTE_LABELS["en"]:
+        for preset in available_palette_presets():
             self.palette_combo.addItem("", preset)
         palette_row.addWidget(self.palette_combo, 1)
         self.palette_button = QPushButton()
         self.palette_button.clicked.connect(self.apply_chain_palette)
         palette_row.addWidget(self.palette_button)
         outer.addLayout(palette_row)
+
+        self.adjust_scene_checkbox = QCheckBox()
+        self.adjust_scene_checkbox.setChecked(True)
+        outer.addWidget(self.adjust_scene_checkbox)
 
         options = QHBoxLayout()
         self.lock_checkbox = QCheckBox()
@@ -378,6 +149,8 @@ class IllustrateTool(ToolInstance):
         self.transparent_checkbox = QCheckBox()
         self.transparent_checkbox.setChecked(True)
         options.addWidget(self.transparent_checkbox)
+        self.prefer_atom_colors_checkbox = QCheckBox()
+        options.addWidget(self.prefer_atom_colors_checkbox)
         options.addStretch(1)
         outer.addLayout(options)
 
@@ -398,11 +171,11 @@ class IllustrateTool(ToolInstance):
         size_layout.addWidget(self.preview_size, 0, 1)
         self.output_width_label = QLabel()
         size_layout.addWidget(self.output_width_label, 0, 2)
-        self.output_width = self._new_int(DEFAULT_OUTPUT_WIDTH, 2, MAX_OUTPUT_SIZE)
+        self.output_width = self._new_int(DEFAULT_OUTPUT_WIDTH, MIN_OUTPUT_SIZE, MAX_OUTPUT_SIZE)
         size_layout.addWidget(self.output_width, 0, 3)
         self.output_height_label = QLabel()
         size_layout.addWidget(self.output_height_label, 0, 4)
-        self.output_height = self._new_int(DEFAULT_OUTPUT_HEIGHT, 2, MAX_OUTPUT_SIZE)
+        self.output_height = self._new_int(DEFAULT_OUTPUT_HEIGHT, MIN_OUTPUT_SIZE, MAX_OUTPUT_SIZE)
         size_layout.addWidget(self.output_height, 0, 5)
         for column in (1, 3, 5):
             size_layout.setColumnStretch(column, 1)
@@ -529,6 +302,10 @@ class IllustrateTool(ToolInstance):
         self.palette_button.setToolTip(self._tr("palette_tooltip"))
         self.lock_checkbox.setText(self._tr("lock"))
         self.transparent_checkbox.setText(self._tr("transparent"))
+        self.prefer_atom_colors_checkbox.setText(self._tr("prefer_atom_colors"))
+        self.prefer_atom_colors_checkbox.setToolTip(self._tr("prefer_atom_colors_tooltip"))
+        self.adjust_scene_checkbox.setText(self._tr("adjust_scene"))
+        self.adjust_scene_checkbox.setToolTip(self._tr("adjust_scene_tooltip"))
         self.size_box.setTitle(self._tr("size_group"))
         self.preview_size_label.setText(self._tr("preview_size"))
         self.output_width_label.setText(self._tr("output_width"))
@@ -643,42 +420,57 @@ class IllustrateTool(ToolInstance):
         dialog.exec()
 
     def capture_scene(self):
+        """Capture the current ChimeraX scene; return whether it succeeded."""
+
         if self._locked:
-            return
+            self._set_status(self._tr("capture_locked"))
+            return False
+        size = self.preview_size.value()
         try:
-            scene, view, style, warning = capture_chimerax_scene(
-                self.session, self.preview_size.value(), self.preview_size.value()
+            scene, view, style, warnings = capture_chimerax_scene(
+                self.session, size, size,
+                prefer_atom_colors=self.prefer_atom_colors_checkbox.isChecked(),
             )
         except Exception as error:
             self._invalidate_snapshot(
                 self._tr("capture_failed", error=error)
             )
-            return
+            return False
         if not scene.atoms:
             self._invalidate_snapshot(self._tr("capture_empty"))
-            return
+            return False
         self._scene = scene
         self._view = view
         self._style_state = style
-        self._capture_width = self.preview_size.value()
-        self._capture_height = self.preview_size.value()
+        self._capture_width = size
+        self._capture_height = size
         self.save_button.setEnabled(True)
         message = self._tr("captured", count=len(scene.atoms))
-        if warning:
+        if WARNING_PERSPECTIVE in warnings:
             message += " — " + self._tr("perspective_warning")
         self._set_status(message)
         self._schedule_render()
+        return True
 
     def apply_chain_palette(self):
         preset = self.palette_combo.currentData()
         try:
-            assignments = color_chains(self.session, preset=preset)
+            assignments = color_chains(
+                self.session,
+                preset=preset,
+                adjust_scene=self.adjust_scene_checkbox.isChecked(),
+            )
         except Exception as error:
             self._set_status(self._tr("palette_failed", error=error))
             return
         if not assignments:
             self._set_status(self._tr("palette_empty"))
             return
+        # Presets with atom-level colors (backbone vs. nucleobase) only show
+        # up in cartoon/surface captures when atom colors are preferred.
+        self.prefer_atom_colors_checkbox.setChecked(
+            preset_prefers_atom_colors(preset)
+        )
         self._set_status(
             self._tr(
                 "palette_done",
@@ -691,6 +483,7 @@ class IllustrateTool(ToolInstance):
         self._generation += 1
         self._scene = None
         self._view = None
+        clear_caches()
         self.save_button.setEnabled(False)
         self.preview.setPixmap(QPixmap())
         self.preview.setText(message)
@@ -700,14 +493,16 @@ class IllustrateTool(ToolInstance):
         self._invalidate_snapshot(self._tr("snapshot_empty"))
         self._set_status(self._tr("snapshot_cleared"))
 
+    def has_snapshot(self):
+        return self._scene is not None and self._view is not None
+
     def _schedule_render(self, *args):
         if self._scene is None or self._view is None:
             return
         self._timer.start()
 
     def _view_for_size(self, width):
-        scale = float(width) / float(max(1, self._capture_width))
-        return replace(self._view, pixels_per_angstrom=self._view.pixels_per_angstrom * scale)
+        return view_for_size(self._view, width, self._capture_width)
 
     def _style_for_size(self, width):
         return scale_style_for_output(self._current_style(), width, self._capture_width)
@@ -729,37 +524,31 @@ class IllustrateTool(ToolInstance):
         style = self._style_for_size(width)
         self._preview_future = self._executor.submit(render, scene, view, style, width, height)
         self._preview_future.add_done_callback(
-            lambda future: self._deliver_render(generation, future, None)
+            lambda future: self._deliver_render(generation, future)
         )
 
-    def _deliver_render(self, generation, future, save_args):
+    def _call_in_ui_thread(self, function, *args):
+        try:
+            self.session.ui.thread_safe(function, *args)
+        except Exception:
+            # This fallback is useful for lightweight test doubles; ChimeraX's
+            # real UI always provides thread_safe().
+            function(*args)
+
+    def _deliver_render(self, generation, future):
         try:
             image = future.result()
             error = None
         except Exception as caught:
             image = None
             error = caught
-        try:
-            self.session.ui.thread_safe(self._finish_render, generation, image, error, save_args)
-        except Exception:
-            # This fallback is useful for lightweight test doubles; ChimeraX's
-            # real UI always provides thread_safe().
-            self._finish_render(generation, image, error, save_args)
+        self._call_in_ui_thread(self._finish_render, generation, image, error)
 
-    def _finish_render(self, generation, image, error, save_args=None):
-        if generation != self._generation:
+    def _finish_render(self, generation, image, error):
+        if self._closed or generation != self._generation:
             return
         if error is not None:
             self._set_status(self._tr("render_failed", error=error))
-            return
-        if save_args is not None:
-            path, transparent = save_args
-            try:
-                save_png(path, image, transparent=transparent)
-            except Exception as caught:
-                self._set_status(self._tr("save_failed", error=caught))
-                return
-            self._set_status(self._tr("saved", path=path))
             return
         self._show_image(image)
         self._set_status(self._tr("preview_updated"))
@@ -776,8 +565,9 @@ class IllustrateTool(ToolInstance):
         ))
 
     def _choose_save_path(self):
-        if self._scene is None:
-            raise UserError(self._tr("need_capture"))
+        if not self.has_snapshot():
+            self._set_status(self._tr("need_capture"))
+            return
         path, _selected_filter = QFileDialog.getSaveFileName(
             self.tool_window.ui_area,
             self._tr("save_dialog"),
@@ -787,69 +577,84 @@ class IllustrateTool(ToolInstance):
         if path:
             self.save_image(path, transparent=self.transparent_checkbox.isChecked())
 
-    @staticmethod
-    def _render_and_save(scene, view, style, width, height, path, transparent):
-        image = render(scene, view, style, width, height)
-        save_png(path, image, transparent=transparent)
-        return path
+    def _prepare_export(self, width, height):
+        """Validate an export request and freeze the state it renders from."""
 
-    def _deliver_save(self, generation, future):
+        if not self.has_snapshot() or not self._scene.atoms:
+            raise UserError(self._tr("invalid_scene"))
+        width = int(width or self.output_width.value())
+        height = int(height or self.output_height.value())
+        problem = check_output_size(width, height)
+        if problem == "minimum_size":
+            raise UserError(self._tr("minimum_size"))
+        if problem == "maximum_size":
+            raise UserError(self._tr("maximum_size", maximum=MAX_OUTPUT_SIZE))
+        return (
+            self._scene, self._view, self._current_style(),
+            self._capture_width, width, height,
+        )
+
+    def save_image(self, path, transparent=True, width=None, height=None,
+                   wait=False):
+        """Export the captured snapshot as a PNG.
+
+        By default the render runs on a background worker and the result is
+        reported in the status line.  With ``wait=True`` (used by the
+        ``illustrate save`` command) the file is complete when this returns.
+        """
+
+        scene, view, style, capture_width, width, height = self._prepare_export(
+            width, height
+        )
+        arguments = (
+            scene, view, style, capture_width, width, height, path,
+            bool(transparent),
+        )
+        if wait:
+            self._set_status(self._tr("rendering", width=width, height=height))
+            try:
+                render_snapshot_to_png(*arguments)
+            except Exception as caught:
+                message = self._tr("save_failed", error=caught)
+                self._set_status(message)
+                raise UserError(message) from caught
+            self._set_status(self._tr("saved", path=path))
+            return path
+        future = self._export_executor.submit(render_snapshot_to_png, *arguments)
+        future.add_done_callback(self._deliver_save)
+        self._set_status(
+            self._tr("rendering", width=width, height=height)
+        )
+        return None
+
+    def _deliver_save(self, future):
         try:
             path = future.result()
             error = None
         except Exception as caught:
             path = None
             error = caught
-        try:
-            self.session.ui.thread_safe(
-                self._finish_save, generation, path, error
-            )
-        except Exception:
-            self._finish_save(generation, path, error)
+        self._call_in_ui_thread(self._finish_save, path, error)
 
-    def _finish_save(self, generation, path, error):
-        if generation != self._generation:
+    def _finish_save(self, path, error):
+        # Export results are always reported, even if the preview was
+        # re-rendered meanwhile; only a closed tool has nowhere to report.
+        if self._closed:
             return
         if error is not None:
             self._set_status(self._tr("save_failed", error=error))
             return
         self._set_status(self._tr("saved", path=path))
 
-    def save_image(self, path, transparent=True, width=None, height=None):
-        if self._scene is None or self._view is None or not self._scene.atoms:
-            raise UserError(self._tr("invalid_scene"))
-        width = int(width or self.output_width.value())
-        height = int(height or self.output_height.value())
-        if width < 2 or height < 2:
-            raise UserError(self._tr("minimum_size"))
-        if width > MAX_OUTPUT_SIZE or height > MAX_OUTPUT_SIZE:
-            raise UserError(
-                self._tr("maximum_size", maximum=MAX_OUTPUT_SIZE)
-            )
-        self._generation += 1
-        generation = self._generation
-        scene = self._scene
-        view = self._view_for_size(width)
-        style = self._style_for_size(width)
-        self._timer.stop()
-        if self._preview_future is not None and not self._preview_future.done():
-            self._preview_future.cancel()
-        future = self._executor.submit(
-            self._render_and_save,
-            scene, view, style, width, height, path, bool(transparent),
-        )
-        future.add_done_callback(
-            lambda completed: self._deliver_save(generation, completed)
-        )
-        self._set_status(
-            self._tr("rendering", width=width, height=height)
-        )
-
     def delete(self):
+        self._closed = True
         self._generation += 1
         try:
             self._timer.stop()
         except Exception:
             pass
-        self._executor.shutdown(wait=False)
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        # Let an export that is already running finish writing its file.
+        self._export_executor.shutdown(wait=False)
+        clear_caches()
         super().delete()
