@@ -47,14 +47,7 @@ devel install ~/ChimeraX-Illustrate
 
 本项目使用 `bundle_info.xml` 构建格式。请勿添加 `editable true`；在 ChimeraX 1.12 中，这可能导致工具信息已注册，但重启后无法导入 `illustrate` 模块，并出现 `No module named 'illustrate'`。
 
-更新到最新版时，在系统终端执行：
-
-```bash
-cd ~/ChimeraX-Illustrate
-git pull
-```
-
-然后回到 ChimeraX，重新执行 `devel install ~/ChimeraX-Illustrate` 并重启。
+已经安装过旧版本？见下文 [更新到新版本](#更新到新版本)。
 
 构建 wheel：
 
@@ -73,6 +66,52 @@ toolshed install ~/Downloads/chimerax_illustrate-0.1.22-py3-none-any.whl
 安装后重启 ChimeraX，再输入 `illustrate`。
 
 不要求安装 Fortran 或 gfortran。NumPy、Qt 和 ChimeraX API 由 ChimeraX 提供。
+
+## 更新到新版本
+
+已经安装过旧版本的用户，按下面的步骤更新。更新只替换插件本身，不会影响你的结构文件和 ChimeraX 的其他设置。
+
+**第一步：查看当前版本。** 在 ChimeraX 命令行中执行：
+
+```text
+toolshed list installed
+```
+
+找到形如 `Illustrate (0.1.21)` 的一行，括号里就是已安装的版本；最新版本见 [Releases 页面](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest)。
+
+**第二步：按你的安装方式更新。**
+
+- **用 wheel 文件安装的**：从 [Releases 页面](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest)下载最新的 `.whl` 文件，然后在 ChimeraX 命令行中执行（把版本号和路径换成实际下载的文件）：
+
+  ```text
+  toolshed install ~/Downloads/chimerax_illustrate-0.1.22-py3-none-any.whl
+  ```
+
+  新版本会直接替换旧版本，不需要先卸载。
+
+- **从源码安装的**：先在系统终端中拉取最新代码：
+
+  ```bash
+  cd ~/ChimeraX-Illustrate
+  git pull
+  ```
+
+  然后回到 ChimeraX，重新执行 `devel install ~/ChimeraX-Illustrate`。
+
+**第三步：重启 ChimeraX。** 已经打开的 ChimeraX 不会重新加载插件，必须重启后才会使用新版本。重启后可再次执行 `toolshed list installed` 确认版本号。
+
+**更新后仍是旧版本，或者插件无法打开？** 可以强制重新安装当前 wheel：
+
+```text
+toolshed install ~/Downloads/chimerax_illustrate-0.1.22-py3-none-any.whl reinstall true
+```
+
+仍不行时，先卸载再安装，然后重启 ChimeraX：
+
+```text
+toolshed uninstall ChimeraX-Illustrate
+toolshed install ~/Downloads/chimerax_illustrate-0.1.22-py3-none-any.whl
+```
 
 ## 使用
 

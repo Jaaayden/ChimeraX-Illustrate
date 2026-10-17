@@ -47,14 +47,7 @@ Restart ChimeraX after installation, then run `illustrate` to open the tool wind
 
 This project uses the `bundle_info.xml` build format. Do not append `editable true`; with ChimeraX 1.12, that may register the tool metadata while leaving the `illustrate` module unavailable after restart, resulting in `No module named 'illustrate'`.
 
-To update an existing checkout, run this in the system terminal:
-
-```bash
-cd ~/ChimeraX-Illustrate
-git pull
-```
-
-Return to ChimeraX, run `devel install ~/ChimeraX-Illustrate` again, and restart ChimeraX.
+Already have an older version installed? See [Updating to a new version](#updating-to-a-new-version) below.
 
 Build a wheel with:
 
@@ -73,6 +66,52 @@ toolshed install ~/Downloads/chimerax_illustrate-0.1.22-py3-none-any.whl
 Restart ChimeraX after installation, then run `illustrate`.
 
 Fortran and gfortran are not required. NumPy, Qt, and the ChimeraX APIs are supplied by ChimeraX.
+
+## Updating to a new version
+
+If you already have an older version installed, follow these steps. Updating only replaces the plugin; your structure files and other ChimeraX settings are untouched.
+
+**Step 1: check the installed version.** Run this in the ChimeraX command line:
+
+```text
+toolshed list installed
+```
+
+Look for a line such as `Illustrate (0.1.21)`; the number in parentheses is the installed version. The newest version is on the [Releases page](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest).
+
+**Step 2: update, depending on how you installed it.**
+
+- **Installed from a wheel file**: download the newest `.whl` from the [Releases page](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest), then run this in ChimeraX (use the version and path of the file you downloaded):
+
+  ```text
+  toolshed install ~/Downloads/chimerax_illustrate-0.1.22-py3-none-any.whl
+  ```
+
+  The new version replaces the old one; you do not need to uninstall first.
+
+- **Installed from source**: pull the latest code in a system terminal:
+
+  ```bash
+  cd ~/ChimeraX-Illustrate
+  git pull
+  ```
+
+  Then, in ChimeraX, run `devel install ~/ChimeraX-Illustrate` again.
+
+**Step 3: restart ChimeraX.** A running ChimeraX does not reload the plugin, so the new version is only used after a restart. Afterwards you can run `toolshed list installed` again to confirm the version.
+
+**Still the old version, or the plugin will not open?** Force a reinstall of the wheel:
+
+```text
+toolshed install ~/Downloads/chimerax_illustrate-0.1.22-py3-none-any.whl reinstall true
+```
+
+If that does not help, uninstall and install again, then restart ChimeraX:
+
+```text
+toolshed uninstall ChimeraX-Illustrate
+toolshed install ~/Downloads/chimerax_illustrate-0.1.22-py3-none-any.whl
+```
 
 ## Usage
 
