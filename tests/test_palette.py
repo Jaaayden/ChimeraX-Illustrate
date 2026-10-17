@@ -5,6 +5,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.palette import (
+    CHAIN_PALETTES,
     apply_chain_palette,
     available_palette_presets,
     preset_prefers_atom_colors,
@@ -79,11 +80,11 @@ class PaletteTests(unittest.TestCase):
 
         self.assertEqual(len(assignments), 2)
         self.assertIn(
-            'color #1 & ::chain_id=="A" #70A5F5 target acs halfbond true',
+            'color #1 & ::chain_id=="A" & (protein | nucleic) #70A5F5 target acs halfbond true',
             commands,
         )
         self.assertIn(
-            'color #1 & ::chain_id=="B" #F78C90 target acs halfbond true',
+            'color #1 & ::chain_id=="B" & (protein | nucleic) #F78C90 target acs halfbond true',
             commands,
         )
         self.assertEqual(
@@ -126,7 +127,7 @@ class PaletteTests(unittest.TestCase):
         )
         self.assertEqual(len(assignments), 2)
         self.assertIn(
-            'color #1 & ::chain_id=="A" #6599E8 target acs halfbond true',
+            'color #1 & ::chain_id=="A" & (protein | nucleic) #6599E8 target acs halfbond true',
             commands,
         )
 
@@ -148,19 +149,19 @@ class PaletteTests(unittest.TestCase):
         )
         self.assertEqual(len(assignments), 4)
         self.assertIn(
-            'color #1 & ::chain_id=="A" #70A5F5 target acs halfbond true',
+            'color #1 & ::chain_id=="A" & (protein | nucleic) #70A5F5 target acs halfbond true',
             commands,
         )
         self.assertIn(
-            'color #1 & ::chain_id=="B" #F78C90 target acs halfbond true',
+            'color #1 & ::chain_id=="B" & (protein | nucleic) #F78C90 target acs halfbond true',
             commands,
         )
         self.assertIn(
-            'color #1 & ::chain_id=="I" #F4B3C1 target acs halfbond true',
+            'color #1 & ::chain_id=="I" & (protein | nucleic) #F4B3C1 target acs halfbond true',
             commands,
         )
         self.assertIn(
-            'color #1 & ::chain_id=="J" #F3AE73 target acs halfbond true',
+            'color #1 & ::chain_id=="J" & (protein | nucleic) #F3AE73 target acs halfbond true',
             commands,
         )
         base_commands = [
@@ -168,12 +169,12 @@ class PaletteTests(unittest.TestCase):
         ]
         self.assertEqual(len(base_commands), 2)
         self.assertIn(
-            'color (#1 & ::chain_id=="I" & :DA & @C8,N9) '
+            'color (#1 & ::chain_id=="I" & (protein | nucleic) & :DA & @C8,N9) '
             '#F2EFE8 target as halfbond true',
             base_commands,
         )
         self.assertIn(
-            'color (#1 & ::chain_id=="J" & :DC & @C2,N1,O2) '
+            'color (#1 & ::chain_id=="J" & (protein | nucleic) & :DC & @C2,N1,O2) '
             '#F2EFE8 target as halfbond true',
             base_commands,
         )
@@ -217,6 +218,116 @@ class PaletteTests(unittest.TestCase):
                 structure_type=FakeStructure,
                 preset="missing",
             )
+
+
+def residues_of(chain_id, *entries):
+    """Fake residues: ``entries`` are residue names in chain ``chain_id``."""
+
+    return [(chain_id, name) for name in entries]
+
+
+class ComponentColorTests(unittest.TestCase):
+    def _run(self, structures, preset="classic"):
+        session = FakeSession(structures)
+        commands = []
+        assignments = apply_chain_palette(
+            session,
+            command_runner=lambda _session, command: commands.append(command),
+            structure_type=FakeStructure,
+            preset=preset,
+            adjust_scene=False,
+        )
+        return commands, assignments
+
+    @staticmethod
+    def _base_color(commands, spec_fragment):
+        """Hex color given to the whole selection that contains ``spec_fragment``."""
+
+        for command in commands:
+            if spec_fragment in command and command.endswith("target acs halfbond true"):
+                return command.split(" ")[-5]  # "... #RRGGBB target acs halfbond true"
+        raise AssertionError("no whole-selection color for %r in %r" % (spec_fragment, commands))
+
+    def test_ligand_in_the_receptor_chain_gets_its_own_color(self):
+        structure = FakeStructure("1", residues_of("A", "ALA", "ALA", "LIG", "LIG"))
+        commands, assignments = self._run([structure])
+        chain = self._base_color(commands, '::chain_id=="A" & (protein | nucleic)')
+        ligand = self._base_color(commands, '::name=="LIG"')
+        self.assertNotEqual(chain, ligand)
+        self.assertEqual(len(assignments), 2)  # one chain, one ligand type
+        # The chain color is applied to the polymer only, never to the ligand.
+        self.assertTrue(all(
+            "LIG" not in command
+            for command in commands if '(protein | nucleic)' in command
+        ))
+
+    def test_every_copy_of_a_molecule_shares_one_color(self):
+        structure = FakeStructure("1", residues_of("A", "ALA", "LIG", "LIG", "LIG"))
+        commands, _ = self._run([structure])
+        whole = [c for c in commands if '::name=="LIG"' in c and c.endswith("target acs halfbond true")]
+        self.assertEqual(len(whole), 1)  # a single color command covers all copies
+
+    def test_different_ligands_get_different_colors(self):
+        structure = FakeStructure("1", residues_of("A", "ALA", "AAA", "BBB", "CCC"))
+        commands, _ = self._run([structure])
+        colors = {
+            self._base_color(commands, '::name=="%s"' % name) for name in ("AAA", "BBB", "CCC")
+        }
+        self.assertEqual(len(colors), 3)
+
+    def test_ligand_color_is_the_same_in_every_structure(self):
+        first = FakeStructure("1", residues_of("A", "ALA", "AAA"))
+        second = FakeStructure("2", residues_of("A", "ALA", "BBB", "AAA"))
+        commands, _ = self._run([first, second])
+        in_first = self._base_color(commands, '#1 & (::name=="AAA")')
+        in_second = self._base_color(commands, '#2 & (::name=="AAA")')
+        self.assertEqual(in_first, in_second)
+
+    def test_lipids_share_one_color_and_sterols_have_another(self):
+        structure = FakeStructure("1", residues_of("A", "ALA") + residues_of("L", "PEE", "OLA", "CLR", "CLR"))
+        commands, assignments = self._run([structure])
+        lipid = self._base_color(commands, '::name=="PEE" | ::name=="OLA"')
+        sterol = self._base_color(commands, '::name=="CLR"')
+        self.assertNotEqual(lipid, sterol)
+        self.assertEqual(len(assignments), 3)  # chain, lipids, sterols
+
+    def test_sugars_share_one_color(self):
+        structure = FakeStructure("1", residues_of("A", "ALA", "NAG", "BMA", "MAN"))
+        _, assignments = self._run([structure])
+        self.assertEqual(len([a for a in assignments if "glycan" in a]), 1)
+
+    def test_water_ions_and_additives_are_left_alone(self):
+        structure = FakeStructure(
+            "1", residues_of("A", "ALA", "HOH", "NA", "SO4", "GOL", "LMT")
+        )
+        commands, assignments = self._run([structure])
+        self.assertEqual(len(assignments), 1)  # only the chain
+        for name in ("HOH", "NA", "SO4", "GOL", "LMT"):
+            self.assertFalse(any(name in command for command in commands))
+
+    def test_chain_without_polymer_does_not_use_a_chain_color(self):
+        structure = FakeStructure("1", residues_of("A", "ALA") + residues_of("Z", "AAA", "AAA"))
+        commands, assignments = self._run([structure])
+        self.assertFalse(any('::chain_id=="Z"' in command for command in commands))
+        # ... and the next real chain still gets the second palette color.
+        other = FakeStructure("2", residues_of("A", "ALA"))
+        commands, _ = self._run([structure, other])
+        self.assertEqual(
+            self._base_color(commands, '#2 & ::chain_id=="A"'), CHAIN_PALETTES["classic"][1]
+        )
+
+    def test_component_colors_differ_from_every_chain_palette_color(self):
+        from src.palette import COMPONENT_COLORS, LIGAND_PALETTE
+
+        chain_colors = {c for colors in CHAIN_PALETTES.values() for c in colors}
+        for color in list(COMPONENT_COLORS.values()) + list(LIGAND_PALETTE):
+            self.assertNotIn(color, chain_colors)
+
+    def test_nucleic_preset_also_colors_ligands(self):
+        structure = FakeStructure("1", residues_of("A", "ALA", "AAA"))
+        commands, assignments = self._run([structure], preset="ribosome")
+        self.assertTrue(any('::name=="AAA"' in command for command in commands))
+        self.assertTrue(any("ligand AAA" in a for a in assignments))
 
 
 if __name__ == "__main__":

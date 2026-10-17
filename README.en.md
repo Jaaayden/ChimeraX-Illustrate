@@ -60,7 +60,7 @@ devel build ~/ChimeraX-Illustrate
 If you have downloaded or built a `.whl` file, install it from the ChimeraX command line with `toolshed install`. For example, after placing the wheel in `~/Downloads`, run:
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
 ```
 
 Restart ChimeraX after installation, then run `illustrate`.
@@ -84,7 +84,7 @@ Look for a line such as `Illustrate (0.1.21)`; the number in parentheses is the 
 - **Installed from a wheel file**: download the newest `.whl` from the [Releases page](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest), then run this in ChimeraX (use the version and path of the file you downloaded):
 
   ```text
-  toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
+  toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
   ```
 
   The new version replaces the old one; you do not need to uninstall first.
@@ -103,14 +103,14 @@ Look for a line such as `Illustrate (0.1.21)`; the number in parentheses is the 
 **Still the old version, or the plugin will not open?** Force a reinstall of the wheel:
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl reinstall true
+toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl reinstall true
 ```
 
 If that does not help, uninstall and install again, then restart ChimeraX:
 
 ```text
 toolshed uninstall ChimeraX-Illustrate
-toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
 ```
 
 ## Usage
@@ -136,7 +136,7 @@ The tool provides five presets:
 - **MotM Spectrum** assigns blue, green, purple, magenta, and warm colors in chain order.
 - **Monochrome Blues** uses related blue shades for repeated chains or symmetric assemblies.
 
-The presets are inspired by the [flat colors and black outlines](https://pdb101.rcsb.org/motm/motm-goodsell) described by RCSB PDB-101 and by component contrasts in its [Ribosomal Subunits](https://pdb101.rcsb.org/motm/10) and [Expressome](https://pdb101.rcsb.org/motm/253) illustrations; they are not exact color copies of any individual artwork. Presets assign colors in chain order instead of guessing functional domains. **Nucleic Base Contrast** additionally distinguishes sugar-phosphate backbone atoms from nucleobase atoms using standard DNA/RNA atom names. By default, applying a preset also sets a white background, soft lighting, ChimeraX silhouettes, and hidden hydrogens; clear **Adjust scene when applying colors** (Advanced settings, General tab) to change colors only. Capture the scene again afterward.
+The presets are inspired by the [flat colors and black outlines](https://pdb101.rcsb.org/motm/motm-goodsell) described by RCSB PDB-101 and by component contrasts in its [Ribosomal Subunits](https://pdb101.rcsb.org/motm/10) and [Expressome](https://pdb101.rcsb.org/motm/253) illustrations; they are not exact color copies of any individual artwork. Presets assign colors to protein and nucleic-acid chains in chain order instead of guessing functional domains. Non-polymer molecules are colored separately, by molecule type, so ligands sharing a chain with the receptor stay distinguishable: every distinct small molecule gets its own strong color (all copies of the same molecule share it), all sterols (cholesterol) share one muted brown, all other lipids share one neutral beige, and all sugars share one light blue. Water, ions, crystallization additives and detergents are left untouched, which keeps the number of colors small. **Nucleic Base Contrast** additionally distinguishes sugar-phosphate backbone atoms from nucleobase atoms using standard DNA/RNA atom names. By default, applying a preset also sets a white background, soft lighting, ChimeraX silhouettes, and hidden hydrogens; clear **Adjust scene when applying colors** (Advanced settings, General tab) to change colors only. Capture the scene again afterward.
 
 The repository retains [`chimerax-chain-palette.py`](chimerax-chain-palette.py) as a command-line compatibility entry point for **Classic Chains**. To use it, run:
 

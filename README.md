@@ -60,7 +60,7 @@ devel build ~/ChimeraX-Illustrate
 如果已经下载或构建了 `.whl` 文件，可在 ChimeraX 命令行中使用 `toolshed install` 安装。例如，将 wheel 放在 `~/Downloads` 后执行：
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
 ```
 
 安装后重启 ChimeraX，再输入 `illustrate`。
@@ -84,7 +84,7 @@ toolshed list installed
 - **用 wheel 文件安装的**：从 [Releases 页面](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest)下载最新的 `.whl` 文件，然后在 ChimeraX 命令行中执行（把版本号和路径换成实际下载的文件）：
 
   ```text
-  toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
+  toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
   ```
 
   新版本会直接替换旧版本，不需要先卸载。
@@ -103,14 +103,14 @@ toolshed list installed
 **更新后仍是旧版本，或者插件无法打开？** 可以强制重新安装当前 wheel：
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl reinstall true
+toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl reinstall true
 ```
 
 仍不行时，先卸载再安装，然后重启 ChimeraX：
 
 ```text
 toolshed uninstall ChimeraX-Illustrate
-toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
 ```
 
 ## 使用
@@ -136,7 +136,7 @@ toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
 - **月度分子光谱**：蓝、绿、紫、洋红和暖色依次分配给链。
 - **单色蓝系列**：使用多级蓝色表现重复链或对称装配体。
 
-这些方案借鉴了 RCSB PDB-101 *Molecule of the Month* 中介绍的[扁平颜色与黑色轮廓](https://pdb101.rcsb.org/motm/motm-goodsell)，以及[核糖体](https://pdb101.rcsb.org/motm/10)和 [Expressome](https://pdb101.rcsb.org/motm/253) 插图中的分子组分对比方法，但不是对某一幅作品的逐色复制。配色方案按链顺序分配颜色，不会猜测功能域；“核酸碱基对比”会额外根据标准 DNA/RNA 原子名称区分糖-磷酸骨架和碱基。默认情况下，应用配色还会设置白色背景、柔和光照、ChimeraX 轮廓并隐藏氢原子；取消勾选“应用配色时同时调整场景”（高级设置的“常规”分页）可只改颜色。随后点击“捕获当前场景”更新预览。
+这些方案借鉴了 RCSB PDB-101 *Molecule of the Month* 中介绍的[扁平颜色与黑色轮廓](https://pdb101.rcsb.org/motm/motm-goodsell)，以及[核糖体](https://pdb101.rcsb.org/motm/10)和 [Expressome](https://pdb101.rcsb.org/motm/253) 插图中的分子组分对比方法，但不是对某一幅作品的逐色复制。配色方案按链顺序给蛋白和核酸链分配颜色，不会猜测功能域；非聚合物分子则按分子类型单独上色，因此与受体同属一条链的配体也能区分开：每种不同的小分子有自己醒目的颜色（同一种分子的所有拷贝颜色相同），所有甾醇（胆固醇）共用一种低饱和的棕色，其他脂质共用一种中性米色，所有糖共用一种浅蓝色；水、离子、结晶添加剂和去污剂保持原样不上色，从而让颜色总数保持较少；“核酸碱基对比”会额外根据标准 DNA/RNA 原子名称区分糖-磷酸骨架和碱基。默认情况下，应用配色还会设置白色背景、柔和光照、ChimeraX 轮廓并隐藏氢原子；取消勾选“应用配色时同时调整场景”（高级设置的“常规”分页）可只改颜色。随后点击“捕获当前场景”更新预览。
 
 仓库仍保留兼容脚本 [`chimerax-chain-palette.py`](chimerax-chain-palette.py)，它使用“经典链配色”。需要从命令行使用时，在 ChimeraX 中运行：
 

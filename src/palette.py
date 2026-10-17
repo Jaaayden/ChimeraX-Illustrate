@@ -79,6 +79,51 @@ _IONS = frozenset((
     "CA", "CD", "CL", "CO", "CU", "FE", "K", "MG", "MN", "NA", "NI", "ZN",
 ))
 
+# Non-polymer components.  Residues are grouped by *name*, so every copy of the
+# same molecule gets the same color, and the number of colors stays small:
+#   * each distinct small molecule (drug, cofactor, ...) has its own color;
+#   * all sterols share one color and all other lipids share another;
+#   * all sugars (glycans) share one color;
+#   * water, ions, crystallization additives and detergents are left alone.
+_STEROLS = frozenset((
+    "CLR", "CHL", "CHL1", "CHOL", "CH1", "ERG", "SIT", "STI",
+))
+_LIPIDS = frozenset((
+    # glycerophospholipids
+    "POPC", "POPE", "POPS", "POPG", "POPA", "POPI", "PC", "PE", "PS", "PG", "PA",
+    "PI", "DPPC", "DPPE", "DPPS", "DPPG", "DOPC", "DOPE", "DOPS", "DOPG", "DLPC",
+    "DLPE", "DMPC", "DMPE", "DSPC", "DSPE", "DAPC", "DYPC", "PEE", "PGT", "PCW",
+    "LPE", "LPC", "6PL", "3PE", "3PC", "PTY", "PLC", "CDL", "CL4", "PGW",
+    # sphingolipids
+    "SPH", "CER", "SM", "PSM", "SPM",
+    # fatty acids and glycerides
+    "OLA", "OLB", "OLC", "PLM", "MYR", "STE", "PAM", "LNL", "ARA", "OCT",
+    "MC3", "TGL", "DGA", "MAG",
+))
+_GLYCANS = frozenset((
+    "NAG", "NDG", "BMA", "MAN", "FUC", "FUL", "GAL", "GLC", "BGC", "SIA", "NGA",
+    "A2G", "XYS", "BGC", "GLA", "RAM", "ARA", "NAA",
+))
+_ADDITIVES = frozenset((
+    "SO4", "PO4", "GOL", "EDO", "PEG", "PGE", "PG4", "PE4", "1PE", "P6G", "ACT",
+    "ACE", "DMS", "MPD", "TRS", "EPE", "MES", "FMT", "NO3", "CIT", "TLA", "BME",
+    "IPA", "MLI", "CAC", "IMD", "UNL", "UNX",
+    # detergents
+    "LMT", "BOG", "OGA", "LDA", "DDM", "UDM", "BNG", "C8E", "DMU", "B3P",
+))
+
+# Colors for the non-polymer groups.  They are deliberately different from the
+# soft pastel chain colors: lipids stay quiet (neutral tones) so the membrane
+# does not overpower the protein, while ligands get strong, distinct colors.
+COMPONENT_COLORS = {
+    "sterol": "#B08968",
+    "lipid": "#CFC6B8",
+    "glycan": "#8FB8C9",
+}
+LIGAND_PALETTE = (
+    "#E63946", "#7B2CBF", "#FFB703", "#06A77D", "#1D6FA5", "#F72585",
+)
+
 
 def available_palette_presets():
     return PALETTE_PRESETS
@@ -119,12 +164,20 @@ def _element_colors(base):
     }
 
 
-def _chain_ids_in_file_order(structure):
+def _polymer_chain_ids(structure, residue_type=None):
+    """Chain ids, in file order, that contain protein or nucleic residues.
+
+    Chains made only of ligands or water do not get a chain color (and do not
+    use up a palette entry).
+    """
+
     seen = set()
     chain_ids = []
     for residue in structure.residues:
         chain_id = residue.chain_id
-        if chain_id not in seen:
+        if chain_id in seen:
+            continue
+        if _residue_category(residue, residue_type) in ("protein", "nucleic"):
             seen.add(chain_id)
             chain_ids.append(chain_id)
     return chain_ids
@@ -135,8 +188,18 @@ def _quoted(value):
 
 
 def _chain_spec(structure, chain_id):
+    """Atoms of the *polymer* in one chain (ligands sharing the chain id are excluded)."""
+
     model_spec = "#" + structure.id_string
-    return "{} & ::chain_id=={}".format(model_spec, _quoted(chain_id))
+    return "{} & ::chain_id=={} & (protein | nucleic)".format(
+        model_spec, _quoted(chain_id)
+    )
+
+
+def _residue_names_spec(structure, names):
+    model_spec = "#" + structure.id_string
+    tests = " | ".join("::name=={}".format(_quoted(name)) for name in names)
+    return "{} & ({})".format(model_spec, tests)
 
 
 def _color_selection(session, command_runner, spec, base):
@@ -154,21 +217,33 @@ def _color_selection(session, command_runner, spec, base):
 
 
 def _residue_category(residue, residue_type=None):
+    """Classify a residue: protein, nucleic, solvent, ions, sterol, lipid, glycan, additive or ligand."""
+
     polymer_type = getattr(residue, "polymer_type", None)
-    if residue_type is not None:
+    name = str(getattr(residue, "name", "")).strip().upper()
+    if residue_type is not None and polymer_type is not None:
         if polymer_type == getattr(residue_type, "PT_AMINO", object()):
             return "protein"
         if polymer_type == getattr(residue_type, "PT_NUCLEIC", object()):
             return "nucleic"
-    name = str(getattr(residue, "name", "")).upper()
-    if name in _AMINO_ACIDS:
-        return "protein"
-    if name in _NUCLEIC_ACIDS:
-        return "nucleic"
+        # Known to be a non-polymer residue: its name cannot make it a chain.
+    else:
+        if name in _AMINO_ACIDS:
+            return "protein"
+        if name in _NUCLEIC_ACIDS:
+            return "nucleic"
     if name in _SOLVENTS:
         return "solvent"
     if name in _IONS:
         return "ions"
+    if name in _STEROLS:
+        return "sterol"
+    if name in _LIPIDS:
+        return "lipid"
+    if name in _GLYCANS:
+        return "glycan"
+    if name in _ADDITIVES:
+        return "additive"
     return "ligand"
 
 
@@ -209,7 +284,7 @@ def _apply_nucleic_base_palette(session, structures, command_runner,
     assignments = []
     for structure in structures:
         model_spec = "#" + structure.id_string
-        chain_ids = _chain_ids_in_file_order(structure)
+        chain_ids = _polymer_chain_ids(structure, residue_type)
         known_colors = KNOWN_CHAIN_SETS.get(frozenset(chain_ids), {})
         if known_colors:
             palette_index += len(known_colors)
@@ -264,13 +339,14 @@ def _apply_nucleic_base_palette(session, structures, command_runner,
     return assignments
 
 
-def _apply_chain_colors(session, structures, command_runner, preset):
+def _apply_chain_colors(session, structures, command_runner, preset,
+                        residue_type=None):
     palette = CHAIN_PALETTES[preset]
     palette_index = 0
     assignments = []
     for structure in structures:
         model_spec = "#" + structure.id_string
-        chain_ids = _chain_ids_in_file_order(structure)
+        chain_ids = _polymer_chain_ids(structure, residue_type)
         known_colors = (
             KNOWN_CHAIN_SETS.get(frozenset(chain_ids), {})
             if preset == "classic"
@@ -289,6 +365,61 @@ def _apply_chain_colors(session, structures, command_runner, preset):
             shown_id = chain_id if chain_id else "<blank>"
             assignments.append("{} /{} = {}".format(
                 model_spec, shown_id, base
+            ))
+    return assignments
+
+
+def _collect_components(structures, residue_type):
+    """Group the non-polymer residues of each structure into colored components.
+
+    Returns one list per structure of ``(label, residue_names, color)``.  A
+    ligand's color depends only on its residue name, so the same molecule has
+    the same color in every structure.
+    """
+
+    ligand_colors = {}
+    result = []
+    for structure in structures:
+        groups = {}
+        for residue in structure.residues:
+            category = _residue_category(residue, residue_type)
+            name = str(getattr(residue, "name", "")).strip()
+            if category in COMPONENT_COLORS:
+                key = category
+            elif category == "ligand" and name:
+                key = "ligand " + name
+                if name not in ligand_colors:
+                    ligand_colors[name] = LIGAND_PALETTE[
+                        len(ligand_colors) % len(LIGAND_PALETTE)
+                    ]
+            else:
+                continue  # polymer, water, ions, additives: not colored here
+            names = groups.setdefault(key, [])
+            if name not in names:
+                names.append(name)
+        components = []
+        for key, names in groups.items():
+            if key in COMPONENT_COLORS:
+                color = COMPONENT_COLORS[key]
+            else:
+                color = ligand_colors[names[0]]
+            components.append((key, names, color))
+        result.append(components)
+    return result
+
+
+def _apply_component_colors(session, structures, command_runner, residue_type):
+    """Color ligands, lipids and sugars (not water or ions) by molecule type."""
+
+    assignments = []
+    collected = _collect_components(structures, residue_type)
+    for structure, components in zip(structures, collected):
+        model_spec = "#" + structure.id_string
+        for label, names, color in components:
+            spec = _residue_names_spec(structure, names)
+            _color_selection(session, command_runner, spec, color)
+            assignments.append("{} {} ({}) = {}".format(
+                model_spec, label, ",".join(names), color
             ))
     return assignments
 
@@ -334,8 +465,11 @@ def apply_chain_palette(session, command_runner=None, structure_type=None,
         )
     else:
         assignments = _apply_chain_colors(
-            session, structures, command_runner, preset
+            session, structures, command_runner, preset, residue_type
         )
+    assignments = list(assignments) + _apply_component_colors(
+        session, structures, command_runner, residue_type
+    )
 
     if adjust_scene:
         command_runner(session, "hide H atoms")
