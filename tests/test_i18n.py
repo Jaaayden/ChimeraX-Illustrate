@@ -41,8 +41,7 @@ class TranslationTests(unittest.TestCase):
         self.assertLessEqual(used, set(i18n.UI_TEXT["en"]))
 
     def test_help_pages_accept_the_size_limits(self):
-        limits = {"preview_min": 64, "preview_max": 2048,
-                  "export_min": 2, "export_max": 16000}
+        limits = {"export_min": 2, "export_max": 16000}
         for text in (i18n.PARAMETER_HELP_HTML_EN, i18n.PARAMETER_HELP_HTML_ZH):
             rendered = text.format(**limits)
             self.assertIn("16000", rendered)
@@ -51,8 +50,7 @@ class TranslationTests(unittest.TestCase):
     def test_message_templates_format_with_their_named_fields(self):
         samples = {"error": "e", "count": 1, "preset": "p", "path": "x",
                    "width": 1, "height": 1, "maximum": 8000, "name": "n", "low": 1,
-                   "high": 2, "value": 1, "preview_min": 1, "preview_max": 2,
-                   "export_min": 1, "export_max": 2, "gb": "6"}
+                   "high": 2, "value": 1, "export_min": 1, "export_max": 2, "gb": "6"}
         for language, table in i18n.UI_TEXT.items():
             for key, template in table.items():
                 with self.subTest(language=language, key=key):
