@@ -6,6 +6,17 @@
 
 把当前 [ChimeraX](https://www.cgl.ucsf.edu/chimerax/) 场景一键变成扁平配色、黑色轮廓的分子插图，风格来自 [Illustrate](https://github.com/ccsb-scripps/Illustrate)。不用再手写、反复修改 `.inp` 文件：在 ChimeraX 里调好视角，捕获，导出 PNG 即可。
 
+## 效果展示
+
+<p align="center"><a href="docs/images/gallery/7K00.png"><img src="docs/images/gallery/7K00.png" width="560" alt="7K00"></a><br><sub><b>7K00</b> · 大肠杆菌 70S 核糖体 · 核酸碱基对比</sub></p>
+
+<table>
+<tr><td align="center"><a href="docs/images/gallery/5T0C.png"><img src="docs/images/gallery/5T0C.png" width="280" alt="5T0C"></a><br><sub><b>5T0C</b> · 人 26S 蛋白酶体<br>月度分子光谱</sub></td><td align="center"><a href="docs/images/gallery/1LP3.png"><img src="docs/images/gallery/1LP3.png" width="280" alt="1LP3"></a><br><sub><b>1LP3</b> · AAV-2 衣壳<br>单色蓝系列</sub></td><td align="center"><a href="docs/images/gallery/1AON.png"><img src="docs/images/gallery/1AON.png" width="280" alt="1AON"></a><br><sub><b>1AON</b> · GroEL/GroES 伴侣蛋白<br>单色蓝系列</sub></td></tr>
+<tr><td align="center"><a href="docs/images/gallery/7DF4.png"><img src="docs/images/gallery/7DF4.png" width="280" alt="7DF4"></a><br><sub><b>7DF4</b> · 新冠刺突蛋白 + ACE2<br>经典链配色</sub></td><td align="center"><a href="docs/images/gallery/3SN6.png"><img src="docs/images/gallery/3SN6.png" width="280" alt="3SN6"></a><br><sub><b>3SN6</b> · β2 肾上腺素受体–Gs 复合物<br>冷暖复合物</sub></td><td align="center"><a href="docs/images/gallery/8F7Q.png"><img src="docs/images/gallery/8F7Q.png" width="280" alt="8F7Q"></a><br><sub><b>8F7Q</b> · μ 阿片受体–Gi 复合物<br>经典链配色</sub></td></tr>
+</table>
+
+均使用本插件，由 [RCSB PDB](https://www.rcsb.org/) 的结构生成（点击图片查看原图）。
+
 ## 主要特点
 
 - **从当前场景一键生成。** 捕获以 atom、cartoon 或 molecular surface 显示的内容，沿用当前视角和颜色。
@@ -20,7 +31,7 @@
 从 [Releases 页面](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest)下载最新的 `.whl` 文件，然后在 ChimeraX 命令行中执行：
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.28-py3-none-any.whl
 ```
 
 重启 ChimeraX，再输入 `illustrate`。需要 ChimeraX 1.10 或更高版本。
