@@ -20,6 +20,7 @@ from Qt.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QDoubleSpinBox,
@@ -73,6 +74,8 @@ DEFAULT_STYLE = IllustrationStyle()
 # Minimum height of a row of labels/checkboxes.  Latin and CJK fonts have
 # different line heights; a common minimum keeps the layout the same in both.
 ROW_HEIGHT = 26
+# Width of the controls column when the preview sits beside it.
+SIDE_PANEL_WIDTH = 330
 # Substituted into every message and help text that mentions a size limit.
 SIZE_LIMITS = {
     "preview_min": MIN_PREVIEW_SIZE,
@@ -208,6 +211,33 @@ class ElidedLabel(QLabel):
         painter.end()
 
 
+class AdaptiveScrollArea(QScrollArea):
+    """Scroll area that tells its owner how much room it has.
+
+    The tool switches between a stacked and a side-by-side layout depending on
+    that room, and scrolls vertically instead of squeezing the preview when
+    the window is short (for example when it shares a dock with the Log).
+    """
+
+    def __init__(self, on_resize):
+        super().__init__()
+        self._on_resize = on_resize
+        self.setWidgetResizable(True)
+        self.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def sizeHint(self):
+        return QSize(340, 580)
+
+    def minimumSizeHint(self):
+        return QSize(290, 200)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        size = self.viewport().size()
+        self._on_resize(size.width(), size.height())
+
+
 class IllustrateTool(ToolInstance):
     SESSION_ENDURING = False
     SESSION_SAVE = False
@@ -242,9 +272,24 @@ class IllustrateTool(ToolInstance):
 
     def _build_ui(self):
         area = self.tool_window.ui_area
-        outer = QVBoxLayout(area)
-        outer.setContentsMargins(8, 8, 8, 8)
-        outer.setSpacing(6)
+        frame = QVBoxLayout(area)
+        frame.setContentsMargins(0, 0, 0, 0)
+        self._scroll = AdaptiveScrollArea(self._on_area_resized)
+        frame.addWidget(self._scroll)
+        content = QWidget()
+        self._scroll.setWidget(content)
+        self._root = QGridLayout(content)
+        self._root.setContentsMargins(8, 8, 8, 8)
+        self._root.setSpacing(6)
+        self._layout_mode = None
+        # Three blocks that are stacked (narrow window) or arranged side by
+        # side (wide window): the basic controls, the preview, the settings.
+        self._controls = QWidget()
+        outer = self._panel_layout(self._controls)
+        self._viewer = QWidget()
+        viewer = self._panel_layout(self._viewer)
+        self._settings = QWidget()
+        settings = self._panel_layout(self._settings)
 
         # --- the basics: capture, export, size, colors, three options -------
         actions = QHBoxLayout()
@@ -281,6 +326,7 @@ class IllustrateTool(ToolInstance):
             self.palette_combo.addItem("", preset)
         palette_row.addWidget(self.palette_combo, 1)
         self.palette_button = self._button(self.apply_chain_palette)
+        self._reserve_button_width(self.palette_button, "apply_palette", extra=26)
         palette_row.addWidget(self.palette_button)
         outer.addLayout(palette_row)
 
@@ -295,10 +341,10 @@ class IllustrateTool(ToolInstance):
         outer.addLayout(options)
 
         self.preview = PreviewView()
-        outer.addWidget(self.preview, 1)
+        viewer.addWidget(self.preview, 1)
 
         self.status = ElidedLabel()
-        outer.addWidget(self.status)
+        viewer.addWidget(self.status)
 
         # --- footer: advanced settings toggle, help, language ---------------
         footer = QHBoxLayout()
@@ -319,7 +365,7 @@ class IllustrateTool(ToolInstance):
         self.language_button = self._button(self._toggle_language, flat=True)
         self._reserve_button_width(self.language_button, "language")
         footer.addWidget(self.language_button)
-        outer.addLayout(footer)
+        settings.addLayout(footer)
 
         # --- advanced settings: hidden until the user asks for them ---------
         self.advanced = QTabWidget()
@@ -385,7 +431,7 @@ class IllustrateTool(ToolInstance):
         general.addWidget(self.reset_button, 3, 0, 1, 2)
         self._pack_page(general)
         self.advanced.addTab(general.parentWidget(), "")
-        outer.addWidget(self.advanced)
+        settings.addWidget(self.advanced)
 
         self._timer = QTimer()
         self._timer.setSingleShot(True)
@@ -396,8 +442,67 @@ class IllustrateTool(ToolInstance):
             control.valueChanged.connect(self._schedule_render)
         self.contour_kernel.valueChanged.connect(self._schedule_render)
         self.preview_size.valueChanged.connect(self._schedule_render)
+        self._apply_layout_mode("vertical")
         self._refresh_language()
         self.status.setText(self._tr("status_waiting"))
+
+    @staticmethod
+    def _panel_layout(panel):
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        return layout
+
+    def _apply_layout_mode(self, mode):
+        """Stack the blocks (``vertical``) or put the preview beside them."""
+
+        if mode == self._layout_mode:
+            return
+        self._layout_mode = mode
+        root = self._root
+        for block in (self._controls, self._viewer, self._settings):
+            root.removeWidget(block)
+        for index in range(4):
+            root.setRowStretch(index, 0)
+            root.setColumnStretch(index, 0)
+            root.setColumnMinimumWidth(index, 0)
+        if mode == "vertical":
+            root.addWidget(self._controls, 0, 0)
+            root.addWidget(self._viewer, 1, 0)
+            root.addWidget(self._settings, 2, 0)
+            root.setRowStretch(1, 100)  # the preview takes spare height first,
+            root.setRowStretch(3, 1)    # then the remainder goes below the settings
+        else:
+            root.addWidget(self._controls, 0, 0)
+            root.addWidget(self._settings, 1, 0)
+            root.addWidget(self._viewer, 0, 1, 3, 1)
+            root.setRowStretch(2, 1)
+            root.setColumnStretch(1, 1)
+            root.setColumnMinimumWidth(0, SIDE_PANEL_WIDTH)
+        for block in (self._controls, self._viewer, self._settings):
+            block.show()
+
+    def _on_area_resized(self, width, height):
+        """Pick the layout that gives the (square) preview the most room."""
+
+        mode = self._layout_mode or "vertical"
+        # Different thresholds for switching there and back avoid flickering
+        # between the two layouts while the user drags the window edge.
+        if mode == "vertical" and width >= max(640, 1.35 * height):
+            mode = "horizontal"
+        elif mode == "horizontal" and width < max(580, 1.1 * height):
+            mode = "vertical"
+        self._apply_layout_mode(mode)
+        if mode == "vertical":
+            # The preview is square: ask for about that much height (scrolling
+            # rather than squashing it when the window is short) and never
+            # more than a square, so no gray bars appear above and below.
+            smallest = int(max(220, min(0.9 * width, 400)))
+            self.preview.setMinimumHeight(smallest)
+            self.preview.setMaximumHeight(max(smallest, width - 16))
+        else:
+            self.preview.setMinimumHeight(220)
+            self.preview.setMaximumHeight(16777215)
 
     @staticmethod
     def _button(handler, flat=False):

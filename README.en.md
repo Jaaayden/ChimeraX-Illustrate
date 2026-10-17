@@ -18,7 +18,7 @@ This repository contains only the plugin software, documentation, tests, and lic
 - A 512-pixel default preview with debounced updates after parameter changes.
 - Controls for contours, subunit boundaries, residue boundaries, soft shadows, and fog.
 - English is the default interface language, with one-click switching to Chinese.
-- A compact main panel (capture, export size, color preset, three options, preview). The detailed parameters sit in collapsible **Advanced settings** tabs (Contours, Boundaries, Shading, General), so the default view stays simple and the window size does not change when you switch language or tabs.
+- A compact main panel (capture, export size, color preset, three options, preview). The detailed parameters sit in collapsible **Advanced settings** tabs (Contour, Borders, Shading, General), so the default view stays simple and the window size does not change when you switch language or tabs.
 - Transparent or opaque PNG export.
 - Preview edge up to 2048 pixels and output width and height from 2 to 16000 pixels; images above 2048 pixels use tiled processing. Very large exports are heavy (about 8000 × 8000: 2 GB and under a minute; 16000 × 16000: about 6–8 GB and several minutes for a 20,000-atom scene), so a notice is shown before they start. Every size keeps the look of the 1200-pixel render: images narrower than 1200 pixels are rendered at 1200 pixels and shrunk by area averaging, and the preview works the same way. Out-of-range size entries are clamped with a status message.
 - Raster/shadow caches, active-region cropping, vectorized NumPy rasterization, and multicore shadow processing accelerate previews and high-resolution exports; PNG compositing, compression, and writing are streamed off the ChimeraX UI thread.
@@ -60,7 +60,7 @@ devel build ~/ChimeraX-Illustrate
 If you have downloaded or built a `.whl` file, install it from the ChimeraX command line with `toolshed install`. For example, after placing the wheel in `~/Downloads`, run:
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.23-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.24-py3-none-any.whl
 ```
 
 Restart ChimeraX after installation, then run `illustrate`.
@@ -84,7 +84,7 @@ Look for a line such as `Illustrate (0.1.21)`; the number in parentheses is the 
 - **Installed from a wheel file**: download the newest `.whl` from the [Releases page](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest), then run this in ChimeraX (use the version and path of the file you downloaded):
 
   ```text
-  toolshed install ~/Downloads/chimerax_illustrate-0.1.23-py3-none-any.whl
+  toolshed install ~/Downloads/chimerax_illustrate-0.1.24-py3-none-any.whl
   ```
 
   The new version replaces the old one; you do not need to uninstall first.
@@ -103,14 +103,14 @@ Look for a line such as `Illustrate (0.1.21)`; the number in parentheses is the 
 **Still the old version, or the plugin will not open?** Force a reinstall of the wheel:
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.23-py3-none-any.whl reinstall true
+toolshed install ~/Downloads/chimerax_illustrate-0.1.24-py3-none-any.whl reinstall true
 ```
 
 If that does not help, uninstall and install again, then restart ChimeraX:
 
 ```text
 toolshed uninstall ChimeraX-Illustrate
-toolshed install ~/Downloads/chimerax_illustrate-0.1.23-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.24-py3-none-any.whl
 ```
 
 ## Usage
@@ -122,7 +122,7 @@ toolshed install ~/Downloads/chimerax_illustrate-0.1.23-py3-none-any.whl
 5. Set the **Export size** and click **Export PNG**. The defaults need nothing else.
 6. To fine-tune the look, open **Advanced settings** and adjust the parameters while watching the preview.
 
-The row of options under the color preset: **Transparent** (transparent PNG background), **Lock snapshot** (keep the current capture), and **Atom colors** (keep each atom's own color for cartoon/surface atoms).
+The row of options under the color preset: **Transparent** (transparent PNG background), **Lock scene** (keep the current capture), and **Atom colors** (keep each atom's own color for cartoon/surface atoms).
 
 Capture the scene again after changing the ChimeraX camera. Parameter changes affect the captured snapshot and do not modify the original ChimeraX model.
 
