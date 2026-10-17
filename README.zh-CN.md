@@ -8,14 +8,16 @@
 
 ## 效果展示
 
-<p align="center"><a href="docs/images/gallery/7K00.png"><img src="docs/images/gallery/7K00.png" width="560" alt="7K00"></a><br><sub><b>7K00</b> · 大肠杆菌 70S 核糖体 · 核酸碱基对比</sub></p>
+<table>
+<tr><td align="center"><a href="docs/images/gallery/7K00.png"><img src="docs/images/gallery/7K00.png" width="420" alt="7K00"></a><br><sub><b>7K00</b> · 大肠杆菌 70S 核糖体<br>核酸碱基对比</sub></td><td align="center"><a href="docs/images/gallery/7E2Y.png"><img src="docs/images/gallery/7E2Y.png" width="420" alt="7E2Y"></a><br><sub><b>7E2Y</b> · 血清素 5-HT1A 受体–Gi 复合物<br>冷暖复合物</sub></td></tr>
+</table>
 
 <table>
 <tr><td align="center"><a href="docs/images/gallery/5T0C.png"><img src="docs/images/gallery/5T0C.png" width="280" alt="5T0C"></a><br><sub><b>5T0C</b> · 人 26S 蛋白酶体<br>月度分子光谱</sub></td><td align="center"><a href="docs/images/gallery/1LP3.png"><img src="docs/images/gallery/1LP3.png" width="280" alt="1LP3"></a><br><sub><b>1LP3</b> · AAV-2 衣壳<br>单色蓝系列</sub></td><td align="center"><a href="docs/images/gallery/1AON.png"><img src="docs/images/gallery/1AON.png" width="280" alt="1AON"></a><br><sub><b>1AON</b> · GroEL/GroES 伴侣蛋白<br>单色蓝系列</sub></td></tr>
 <tr><td align="center"><a href="docs/images/gallery/7DF4.png"><img src="docs/images/gallery/7DF4.png" width="280" alt="7DF4"></a><br><sub><b>7DF4</b> · 新冠刺突蛋白 + ACE2<br>经典链配色</sub></td><td align="center"><a href="docs/images/gallery/3SN6.png"><img src="docs/images/gallery/3SN6.png" width="280" alt="3SN6"></a><br><sub><b>3SN6</b> · β2 肾上腺素受体–Gs 复合物<br>冷暖复合物</sub></td><td align="center"><a href="docs/images/gallery/8F7Q.png"><img src="docs/images/gallery/8F7Q.png" width="280" alt="8F7Q"></a><br><sub><b>8F7Q</b> · μ 阿片受体–Gi 复合物<br>经典链配色</sub></td></tr>
 </table>
 
-均使用本插件，由 [RCSB PDB](https://www.rcsb.org/) 的结构生成（点击图片查看原图）。
+均使用本插件，由 [RCSB PDB](https://www.rcsb.org/) 的结构生成（点击图片查看原图）。7E2Y 中胆固醇为棕色，结合的脂质为紫色。
 
 ## 主要特点
 
