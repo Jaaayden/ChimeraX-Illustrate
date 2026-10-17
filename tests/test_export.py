@@ -13,10 +13,13 @@ from src.export import (
     MAX_OUTPUT_SIZE,
     ExportError,
     check_output_size,
+    default_export_filename,
     estimated_memory_gb,
+    filename_stem,
     export_png,
     is_large_export,
     render_snapshot_to_png,
+    snapshot_name,
 )
 from src.render import (
     AtomRecord,
@@ -105,6 +108,46 @@ class ExportTests(unittest.TestCase):
             with self.subTest(size=size):
                 with self.assertRaises(ExportError):
                     export_png(session, "unused.png", width=size, height=size)
+
+
+class NamingTests(unittest.TestCase):
+    @staticmethod
+    def _model(name, **kwargs):
+        model = FakeModel([FakeAtom(display=True)], **kwargs)
+        model.name = name
+        return model
+
+    def test_stem_drops_structure_extensions_and_unsafe_characters(self):
+        self.assertEqual(filename_stem("1abc"), "1abc")
+        self.assertEqual(filename_stem("1abc.cif"), "1abc")
+        self.assertEqual(filename_stem("my model.pdb.gz"), "my_model")
+        self.assertEqual(filename_stem("a/b:c*?.pdb"), "a_b_c")
+        self.assertEqual(filename_stem("\u86cb\u767d\u8d28.pdb"), "\u86cb\u767d\u8d28")
+        self.assertEqual(filename_stem(".pdb"), "pdb")
+        self.assertEqual(filename_stem("???"), "")
+        self.assertLessEqual(len(filename_stem("x" * 200)), 60)
+
+    def test_snapshot_name_uses_the_visible_structure(self):
+        session = FakeSession([self._model("1abc.cif")])
+        self.assertEqual(snapshot_name(session), "1abc")
+
+    def test_snapshot_name_summarizes_several_structures(self):
+        session = FakeSession([self._model("1abc"), self._model("2xyz"), self._model("3def")])
+        self.assertEqual(snapshot_name(session), "1abc_plus2")
+
+    def test_hidden_structures_do_not_name_the_snapshot(self):
+        session = FakeSession([
+            self._model("hidden", display=False), self._model("shown"),
+        ])
+        self.assertEqual(snapshot_name(session), "shown")
+
+    def test_snapshot_name_falls_back_when_nothing_is_shown(self):
+        self.assertEqual(snapshot_name(FakeSession([])), "illustrate")
+        self.assertEqual(snapshot_name(FakeSession([self._model("???")])), "illustrate")
+
+    def test_default_filename_includes_the_size(self):
+        self.assertEqual(default_export_filename("1abc", 1200, 1200), "1abc_1200x1200.png")
+        self.assertEqual(default_export_filename("", 600, 300), "illustrate_600x300.png")
 
 
 if __name__ == "__main__":

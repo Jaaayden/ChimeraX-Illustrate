@@ -159,6 +159,17 @@ def _scene_models(session):
         return [model for model in listing() if isinstance(model, AtomicStructure)]
 
 
+def visible_structure_names(session) -> List[str]:
+    """Names of the visible atomic structures, in model order."""
+
+    names = []
+    for model in _scene_models(session):
+        name = getattr(model, "name", None)
+        if name and _model_is_visible(model):
+            names.append(str(name))
+    return names
+
+
 def _surface_models(session):
     try:
         from chimerax.atomic import MolecularSurface

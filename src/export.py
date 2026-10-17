@@ -7,6 +7,7 @@ so exporting works without the graphical interface (for example in
 
 from __future__ import annotations
 
+import re
 from typing import Optional, Tuple
 
 from .render import (
@@ -17,7 +18,12 @@ from .render import (
     render_scaled,
     save_png,
 )
-from .scene import WARNING_NO_ATOMS, WARNING_PERSPECTIVE, capture_scene
+from .scene import (
+    WARNING_NO_ATOMS,
+    WARNING_PERSPECTIVE,
+    capture_scene,
+    visible_structure_names,
+)
 
 
 # Edge of the square the live preview is rendered at.  Anything below 1200 is
@@ -44,6 +50,45 @@ WARNING_TEXT = {
         "Perspective camera detected; Illustrate renders an orthographic view"
     ),
 }
+
+
+_STRUCTURE_SUFFIXES = (
+    ".gz", ".pdb", ".ent", ".cif", ".mmcif", ".pdbx", ".bcif", ".mol2", ".sdf",
+    ".xyz", ".mae", ".pqr",
+)
+FALLBACK_STEM = "illustrate"
+
+
+def filename_stem(name: str) -> str:
+    """Turn a model name such as ``1abc.cif.gz`` into a safe file name stem."""
+
+    stem = name.strip()
+    stripped = True
+    while stripped:
+        stripped = False
+        for suffix in _STRUCTURE_SUFFIXES:
+            if stem.lower().endswith(suffix) and len(stem) > len(suffix):
+                stem = stem[: -len(suffix)]
+                stripped = True
+    stem = re.sub(r"[^\w.+-]+", "_", stem).strip("._-")
+    return stem[:60]
+
+
+def snapshot_name(session) -> str:
+    """File name stem describing what is on screen (the first visible model)."""
+
+    stems = [stem for stem in map(filename_stem, visible_structure_names(session)) if stem]
+    if not stems:
+        return FALLBACK_STEM
+    if len(stems) == 1:
+        return stems[0]
+    return "%s_plus%d" % (stems[0], len(stems) - 1)
+
+
+def default_export_filename(stem: str, width: int, height: int) -> str:
+    """Default PNG name, e.g. ``1abc_1200x1200.png``."""
+
+    return "%s_%dx%d.png" % (stem or FALLBACK_STEM, width, height)
 
 
 class ExportError(ValueError):

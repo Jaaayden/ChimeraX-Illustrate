@@ -60,7 +60,7 @@ devel build ~/ChimeraX-Illustrate
 If you have downloaded or built a `.whl` file, install it from the ChimeraX command line with `toolshed install`. For example, after placing the wheel in `~/Downloads`, run:
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
 ```
 
 Restart ChimeraX after installation, then run `illustrate`.
@@ -84,7 +84,7 @@ Look for a line such as `Illustrate (0.1.21)`; the number in parentheses is the 
 - **Installed from a wheel file**: download the newest `.whl` from the [Releases page](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest), then run this in ChimeraX (use the version and path of the file you downloaded):
 
   ```text
-  toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
+  toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
   ```
 
   The new version replaces the old one; you do not need to uninstall first.
@@ -103,14 +103,14 @@ Look for a line such as `Illustrate (0.1.21)`; the number in parentheses is the 
 **Still the old version, or the plugin will not open?** Force a reinstall of the wheel:
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl reinstall true
+toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl reinstall true
 ```
 
 If that does not help, uninstall and install again, then restart ChimeraX:
 
 ```text
 toolshed uninstall ChimeraX-Illustrate
-toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
 ```
 
 ## Usage
@@ -119,7 +119,7 @@ toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
 2. Adjust colors, visibility, and the ChimeraX camera.
 3. Run `illustrate`, optionally choose a color preset under **Colors**, and click **Apply Colors**.
 4. Click **Capture Current Scene**.
-5. Pick an **Export size** from the menu (or **Custom**) and click **Export PNG**. The defaults need nothing else.
+5. Pick an **Export size** from the menu (or **Custom**) and click **Export PNG**. The defaults need nothing else. The save dialog suggests a file name made from the structure and the size (for example `1abc_1200x1200.png`) and starts in the folder of your previous export.
 6. To fine-tune the look, open **Advanced settings** and adjust the parameters while watching the preview.
 
 The row of options under the color preset: **Transparent** (transparent PNG background), **Lock scene** (keep the current capture), and **Atom colors** (keep each atom's own color for cartoon/surface atoms).
