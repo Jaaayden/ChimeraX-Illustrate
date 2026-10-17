@@ -89,16 +89,19 @@ _STEROLS = frozenset((
     "CLR", "CHL", "CHL1", "CHOL", "CH1", "ERG", "SIT", "STI",
 ))
 _LIPIDS = frozenset((
-    # glycerophospholipids
-    "POPC", "POPE", "POPS", "POPG", "POPA", "POPI", "PC", "PE", "PS", "PG", "PA",
-    "PI", "DPPC", "DPPE", "DPPS", "DPPG", "DOPC", "DOPE", "DOPS", "DOPG", "DLPC",
-    "DLPE", "DMPC", "DMPE", "DSPC", "DSPE", "DAPC", "DYPC", "PEE", "PGT", "PCW",
-    "LPE", "LPC", "6PL", "3PE", "3PC", "PTY", "PLC", "CDL", "CL4", "PGW",
+    # glycerophospholipids (only names that are unambiguous in the PDB: short
+    # codes such as PC, PE, PS or SPM are also used for other molecules, e.g.
+    # SPM is spermine in many ribosome structures)
+    "POPC", "POPE", "POPS", "POPG", "POPA", "POPI", "DPPC", "DPPE", "DPPS",
+    "DPPG", "DOPC", "DOPE", "DOPS", "DOPG", "DLPC", "DLPE", "DMPC", "DMPE",
+    "DSPC", "DSPE", "DAPC", "DYPC", "PEE", "PGT", "PCW", "LPE", "LPC", "6PL",
+    "3PE", "3PC", "PTY", "PLC", "CDL", "CL4", "PGW",
+    # thylakoid and bacterial glycolipids
+    "LMG", "DGD", "LHG", "SQD",
     # sphingolipids
-    "SPH", "CER", "SM", "PSM", "SPM",
+    "SPH", "CER", "PSM",
     # fatty acids and glycerides
-    "OLA", "OLB", "OLC", "PLM", "MYR", "STE", "PAM", "LNL", "ARA", "OCT",
-    "MC3", "TGL", "DGA", "MAG",
+    "OLA", "OLB", "OLC", "PLM", "MYR", "STE", "PAM", "LNL", "MC3", "TGL", "DGA",
 ))
 _GLYCANS = frozenset((
     "NAG", "NDG", "BMA", "MAN", "FUC", "FUL", "GAL", "GLC", "BGC", "SIA", "NGA",

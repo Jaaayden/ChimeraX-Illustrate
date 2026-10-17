@@ -291,6 +291,19 @@ class ComponentColorTests(unittest.TestCase):
         self.assertNotEqual(lipid, sterol)
         self.assertEqual(len(assignments), 3)  # chain, lipids, sterols
 
+    def test_ambiguous_short_codes_are_ordinary_ligands(self):
+        # SPM is spermine (not sphingomyelin) in ribosome structures.
+        structure = FakeStructure("1", residues_of("A", "ALA", "SPM", "PC"))
+        _, assignments = self._run([structure])
+        self.assertTrue(any("ligand SPM" in a for a in assignments))
+        self.assertTrue(any("ligand PC" in a for a in assignments))
+        self.assertFalse(any(a.split()[1] == "lipid" for a in assignments[1:]))
+
+    def test_thylakoid_lipids_count_as_lipids(self):
+        structure = FakeStructure("1", residues_of("A", "ALA", "LMG", "DGD", "LHG", "SQD"))
+        _, assignments = self._run([structure])
+        self.assertEqual(len([a for a in assignments if " lipid " in a]), 1)
+
     def test_sugars_share_one_color(self):
         structure = FakeStructure("1", residues_of("A", "ALA", "NAG", "BMA", "MAN"))
         _, assignments = self._run([structure])
