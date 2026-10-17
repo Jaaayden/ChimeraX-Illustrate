@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
+import os
 from dataclasses import replace
 from typing import Dict, Optional
 
@@ -32,6 +33,7 @@ from Qt.QtWidgets import (
 )
 
 from .export import (
+    FALLBACK_STEM,
     DEFAULT_OUTPUT_HEIGHT,
     DEFAULT_OUTPUT_WIDTH,
     DEFAULT_PREVIEW_SIZE,
@@ -39,9 +41,11 @@ from .export import (
     MAX_OUTPUT_SIZE,
     MIN_OUTPUT_SIZE,
     check_output_size,
+    default_export_filename,
     estimated_memory_gb,
     is_large_export,
     render_snapshot_to_png,
+    snapshot_name,
 )
 from .i18n import (
     PALETTE_LABELS,
@@ -239,12 +243,15 @@ class AdaptiveScrollArea(QScrollArea):
 class IllustrateTool(ToolInstance):
     SESSION_ENDURING = False
     SESSION_SAVE = False
+    # Folder of the last export, shared by all tool windows of this run.
+    _last_export_dir = os.path.expanduser("~")
     help = "help:user/tools/illustrate.html"
 
     def __init__(self, session, tool_name):
         super().__init__(session, tool_name)
         self._language = "en"
         self._scene: Optional[RenderScene] = None
+        self._snapshot_name = FALLBACK_STEM
         self._view: Optional[ViewSnapshot] = None
         self._style_state = IllustrationStyle()
         self._capture_width = DEFAULT_PREVIEW_SIZE
@@ -812,6 +819,7 @@ class IllustrateTool(ToolInstance):
         self._scene = scene
         self._view = view
         self._style_state = style
+        self._snapshot_name = snapshot_name(self.session)
         self._capture_width = size
         self._capture_height = size
         self.save_button.setEnabled(True)
@@ -929,13 +937,23 @@ class IllustrateTool(ToolInstance):
         if not self.has_snapshot():
             self._set_status(self._tr("need_capture"))
             return
+        # Name the file after what is on screen and the chosen size, and start
+        # in the folder used for the previous export.
+        filename = default_export_filename(
+            self._snapshot_name, self.output_width.value(), self.output_height.value()
+        )
         path, _selected_filter = QFileDialog.getSaveFileName(
             self.tool_window.ui_area,
             self._tr("save_dialog"),
-            "illustrate.png",
+            os.path.join(IllustrateTool._last_export_dir, filename),
             "PNG (*.png)",
         )
         if path:
+            if not path.lower().endswith(".png"):
+                path += ".png"
+            IllustrateTool._last_export_dir = (
+                os.path.dirname(path) or IllustrateTool._last_export_dir
+            )
             self.save_image(path, transparent=self.transparent_checkbox.isChecked())
 
     def _prepare_export(self, width, height):

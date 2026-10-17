@@ -60,7 +60,7 @@ devel build ~/ChimeraX-Illustrate
 如果已经下载或构建了 `.whl` 文件，可在 ChimeraX 命令行中使用 `toolshed install` 安装。例如，将 wheel 放在 `~/Downloads` 后执行：
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
 ```
 
 安装后重启 ChimeraX，再输入 `illustrate`。
@@ -84,7 +84,7 @@ toolshed list installed
 - **用 wheel 文件安装的**：从 [Releases 页面](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest)下载最新的 `.whl` 文件，然后在 ChimeraX 命令行中执行（把版本号和路径换成实际下载的文件）：
 
   ```text
-  toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
+  toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
   ```
 
   新版本会直接替换旧版本，不需要先卸载。
@@ -103,14 +103,14 @@ toolshed list installed
 **更新后仍是旧版本，或者插件无法打开？** 可以强制重新安装当前 wheel：
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl reinstall true
+toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl reinstall true
 ```
 
 仍不行时，先卸载再安装，然后重启 ChimeraX：
 
 ```text
 toolshed uninstall ChimeraX-Illustrate
-toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.26-py3-none-any.whl
 ```
 
 ## 使用
@@ -119,7 +119,7 @@ toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
 2. 调整 ChimeraX 中的颜色、显示状态和视角。
 3. 如需自动配色，在工具窗口的“配色方案”中选择方案并点击“应用配色”。
 4. 点击“捕获当前场景”。
-5. 在“导出尺寸”菜单中选择尺寸（或选“自定义”），点击“导出 PNG”；使用默认设置时到这一步即可。
+5. 在“导出尺寸”菜单中选择尺寸（或选“自定义”），点击“导出 PNG”；使用默认设置时到这一步即可。保存对话框会按结构名和尺寸给出默认文件名（例如 `1abc_1200x1200.png`），并从上次导出的文件夹开始。
 6. 需要微调效果时，展开“高级设置”，一边看预览一边调整参数。
 
 配色方案下面的一行选项：“透明背景”（导出透明背景的 PNG）、“锁定快照”（保持当前捕获结果）、“原子颜色”（对 cartoon/surface 显示的原子保留各自的原子颜色）。
