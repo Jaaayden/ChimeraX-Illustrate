@@ -1,173 +1,91 @@
+<p align="center"><img src="docs/images/icon.png" width="120" alt="Illustrate for ChimeraX"></p>
+
 # Illustrate for ChimeraX
 
-中文说明 | [English](README.en.md)
+English | [简体中文](README.zh-CN.md)
 
-## 项目简介
+Turn the current [ChimeraX](https://www.cgl.ucsf.edu/chimerax/) scene into a flat-colored, black-outlined molecular illustration in the style of [Illustrate](https://github.com/ccsb-scripps/Illustrate). No more writing and editing `.inp` files: set up the view in ChimeraX, capture it, and export a PNG.
 
-Illustrate for ChimeraX 是一个 ChimeraX bundle，将当前 ChimeraX 场景转换为具有 Illustrate 风格的非真实感分子插图。
+## Highlights
 
-它不要求用户手动编写或反复修改 `.inp` 文件。用户在 ChimeraX 中调整显示内容和视角后，捕获当前场景，再通过插件参数实时调整轮廓、边界、阴影和雾化效果，最后导出 PNG。
+- **One click from your scene.** Captures atoms, cartoons or molecular surfaces with your current camera and colors.
+- **Smart coloring.** Five presets color chains, and *separately* ligands, lipids and sugars, so a ligand never blends into its receptor.
+- **Simple by default.** Capture, pick an export size, export. Contours, boundaries, shadows and fog sit in collapsible Advanced settings.
+- **Same look at any size.** Transparent PNG from 300 up to 16000 px, with a live preview that matches the export.
+- **Scriptable.** `illustrate save out.png` works in scripts and in `ChimeraX --nogui`.
+- English and Chinese interface.
 
-本仓库只包含插件软件、文档、测试和许可文件，不包含任何结构数据或结构结果。
+## Installation
 
-## 主要功能
+Download the latest `.whl` from the [Releases page](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest), then run in ChimeraX:
 
-- 捕获当前显示为 atom、cartoon 或 molecular surface 的分子内容，并读取对应颜色、原子半径和分组信息。
-- 内置五套插图配色方案，可直接为当前原子模型按链着色，并可区分核酸骨架与碱基。
-- 捕获当前 ChimeraX 相机和视角；渲染器使用 Illustrate 风格的正交投影模型。
-- 参数修改后的防抖实时预览。
-- 轮廓、亚基边界、残基边界、软阴影和雾化控制。
-- 默认英文界面，可在工具窗口中一键切换为中文。
-- 主界面左侧是控件、右侧是大尺寸正方形预览（仅在窗口很窄或很高时才改为上下排列，窗口偏矮时改为滚动而不是压扁预览）；详细参数放在可折叠的“高级设置”分页中（轮廓、边界、阴影与雾、常规），默认只显示基本操作，切换语言或分页时窗口大小也不会变化。
-- 透明或不透明 PNG 导出。
-- 导出尺寸提供预设（300、600、1200、2400、4800、8000 像素的正方形），也可选“自定义”输入 2–16000 像素的任意宽度和高度；超过 2048 像素的图像使用分块处理。超大导出很吃资源（约 8000×8000：2 GB、不到 1 分钟；16000×16000：约 6–8 GB、数分钟），开始前会在状态栏提示。任何尺寸都保持 1200 像素渲染时的样式：宽度小于 1200 的图像先按 1200 像素渲染，再用面积平均缩小，预览同理；自定义尺寸超出范围时会自动限幅并在状态栏提示。
-- 使用栅格/阴影缓存、有效区域裁剪、NumPy 向量化和多核阴影计算加速预览及高分辨率导出；PNG 在后台分块合成、压缩和写盘，不阻塞 ChimeraX 界面。
-- 提供参数说明、实用范围和默认参数恢复功能。
+```text
+toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
+```
 
-渲染结果仍由原子球体组成。Cartoon 和 molecular surface 的几何网格不会被直接栅格化；插件会读取当前可见 cartoon 残基或 surface patch 所关联的原子，再转换为 Illustrate 风格球体。隐藏的整个模型不会被捕获。
+Restart ChimeraX and run `illustrate`. Requires ChimeraX 1.10 or later.
 
-## 安装
-
-### 推荐：从源码安装（macOS / Linux）
-
-首先打开系统终端，将仓库克隆到用户主目录：
+<details>
+<summary>Install from source instead</summary>
 
 ```bash
 cd ~
 git clone https://github.com/Jaaayden/ChimeraX-Illustrate.git
 ```
 
-然后打开 ChimeraX，在 ChimeraX 命令行中执行：
+Then in ChimeraX: `devel install ~/ChimeraX-Illustrate`, and restart. Do not add `editable true`; with ChimeraX 1.12 it can leave the `illustrate` module unavailable after a restart.
+</details>
+
+## Updating
+
+1. Check your version with `toolshed list installed` (look for `Illustrate (x.y.z)`).
+2. Wheel install: download the newer `.whl` and run the same `toolshed install` command; it replaces the old version. Source install: `git pull` in `~/ChimeraX-Illustrate`, then `devel install ~/ChimeraX-Illustrate`.
+3. Restart ChimeraX.
+
+If the old version sticks, add `reinstall true` to the `toolshed install` command, or run `toolshed uninstall ChimeraX-Illustrate` first.
+
+## Quick start
+
+1. Open a structure in ChimeraX and show it as atoms, cartoons or a surface.
+2. Run `illustrate`. Optionally pick a color preset and click **Apply Colors**.
+3. Click **Capture Current Scene**, then adjust the ChimeraX view if you like and capture again.
+4. Choose an **Export size** and click **Export PNG**.
+
+Need to fine-tune? Open **Advanced settings** (Contour, Borders, Shading, General) and watch the preview update.
+
+## Color presets
+
+| Preset | Good for |
+| --- | --- |
+| **Classic Chains** | Everyday use: soft pastel colors, one per chain |
+| **Cool / Warm Complex** | Receptor and partner, multi-subunit complexes |
+| **Nucleic Base Contrast** | Ribosomes and DNA/RNA complexes: chain-colored backbone, pale nucleobases |
+| **MotM Spectrum** | Large machines: blue, green, purple, magenta, warm in chain order |
+| **Monochrome Blues** | Symmetric assemblies and capsids |
+
+Proteins and nucleic acids are colored by chain. Other molecules are colored by type: each small molecule gets its own strong color (all copies share it), sterols share one brown, other lipids one beige, sugars one light blue. Water, ions, crystallization additives and detergents are left alone, which keeps the palette small.
+
+By default a preset also hides hydrogens and sets a white background, soft lighting and silhouettes; clear **Adjust scene when applying colors** (Advanced settings, General) to change colors only.
+
+## Commands
 
 ```text
-devel install ~/ChimeraX-Illustrate
+illustrate                                   open the tool window
+illustrate capture                           capture the current scene
+illustrate save out.png [width 1200] [height 1200] [transparent true|false]
+illustrate reset                             discard the captured scene
 ```
 
-安装完成后重启 ChimeraX，再输入 `illustrate` 打开工具窗口。
+`illustrate save` writes the file before it returns, and exports the tool's captured scene if there is one, otherwise the current scene.
 
-本项目使用 `bundle_info.xml` 构建格式。请勿添加 `editable true`；在 ChimeraX 1.12 中，这可能导致工具信息已注册，但重启后无法导入 `illustrate` 模块，并出现 `No module named 'illustrate'`。
+## Development
 
-已经安装过旧版本？见下文 [更新到新版本](#更新到新版本)。
-
-构建 wheel：
-
-```text
-devel build ~/ChimeraX-Illustrate
+```bash
+python3 -m unittest discover -s tests -t .
 ```
 
-### 安装 wheel 文件
+The renderer is pure NumPy; `tests/reference_render.py` is a slow reference implementation the tests compare it against.
 
-如果已经下载或构建了 `.whl` 文件，可在 ChimeraX 命令行中使用 `toolshed install` 安装。例如，将 wheel 放在 `~/Downloads` 后执行：
+## License
 
-```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
-```
-
-安装后重启 ChimeraX，再输入 `illustrate`。
-
-不要求安装 Fortran 或 gfortran。NumPy、Qt 和 ChimeraX API 由 ChimeraX 提供。
-
-## 更新到新版本
-
-已经安装过旧版本的用户，按下面的步骤更新。更新只替换插件本身，不会影响你的结构文件和 ChimeraX 的其他设置。
-
-**第一步：查看当前版本。** 在 ChimeraX 命令行中执行：
-
-```text
-toolshed list installed
-```
-
-找到形如 `Illustrate (0.1.21)` 的一行，括号里就是已安装的版本；最新版本见 [Releases 页面](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest)。
-
-**第二步：按你的安装方式更新。**
-
-- **用 wheel 文件安装的**：从 [Releases 页面](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest)下载最新的 `.whl` 文件，然后在 ChimeraX 命令行中执行（把版本号和路径换成实际下载的文件）：
-
-  ```text
-  toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
-  ```
-
-  新版本会直接替换旧版本，不需要先卸载。
-
-- **从源码安装的**：先在系统终端中拉取最新代码：
-
-  ```bash
-  cd ~/ChimeraX-Illustrate
-  git pull
-  ```
-
-  然后回到 ChimeraX，重新执行 `devel install ~/ChimeraX-Illustrate`。
-
-**第三步：重启 ChimeraX。** 已经打开的 ChimeraX 不会重新加载插件，必须重启后才会使用新版本。重启后可再次执行 `toolshed list installed` 确认版本号。
-
-**更新后仍是旧版本，或者插件无法打开？** 可以强制重新安装当前 wheel：
-
-```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl reinstall true
-```
-
-仍不行时，先卸载再安装，然后重启 ChimeraX：
-
-```text
-toolshed uninstall ChimeraX-Illustrate
-toolshed install ~/Downloads/chimerax_illustrate-0.1.27-py3-none-any.whl
-```
-
-## 使用
-
-1. 在 ChimeraX 中打开结构，并用 atom、cartoon 或 molecular surface 显示需要绘制的部分。
-2. 调整 ChimeraX 中的颜色、显示状态和视角。
-3. 如需自动配色，在工具窗口的“配色方案”中选择方案并点击“应用配色”。
-4. 点击“捕获当前场景”。
-5. 在“导出尺寸”菜单中选择尺寸（或选“自定义”），点击“导出 PNG”；使用默认设置时到这一步即可。保存对话框会按结构名和尺寸给出默认文件名（例如 `1abc_1200x1200.png`），并从上次导出的文件夹开始。
-6. 需要微调效果时，展开“高级设置”，一边看预览一边调整参数。
-
-配色方案下面的一行选项：“透明背景”（导出透明背景的 PNG）、“锁定快照”（保持当前捕获结果）、“原子颜色”（对 cartoon/surface 显示的原子保留各自的原子颜色）。
-
-改变 ChimeraX 视角后，需要再次捕获场景。参数修改会作用于已捕获的快照，不会修改 ChimeraX 原始模型。
-
-## 配色方案
-
-工具窗口提供以下方案：
-
-- **经典链配色**：原有的 Illustrate 柔和链配色，兼容已有工作流。
-- **冷暖复合物**：冷色与暖色交替，适合受体/伴侣或多亚基复合物。
-- **核酸碱基对比**：蛋白链和核酸链分别使用不同的柔和颜色；核酸糖-磷酸骨架保留链色，碱基统一使用浅暖灰白色，以突出内部配对区域。无论当前显示为 atom、cartoon 还是 surface，捕获时都会保留这种逐原子对比。
-- **月度分子光谱**：蓝、绿、紫、洋红和暖色依次分配给链。
-- **单色蓝系列**：使用多级蓝色表现重复链或对称装配体。
-
-这些方案借鉴了 RCSB PDB-101 *Molecule of the Month* 中介绍的[扁平颜色与黑色轮廓](https://pdb101.rcsb.org/motm/motm-goodsell)，以及[核糖体](https://pdb101.rcsb.org/motm/10)和 [Expressome](https://pdb101.rcsb.org/motm/253) 插图中的分子组分对比方法，但不是对某一幅作品的逐色复制。配色方案按链顺序给蛋白和核酸链分配颜色，不会猜测功能域；非聚合物分子则按分子类型单独上色，因此与受体同属一条链的配体也能区分开：每种不同的小分子有自己醒目的颜色（同一种分子的所有拷贝颜色相同），所有甾醇（胆固醇）共用一种低饱和的棕色，其他脂质共用一种中性米色，所有糖共用一种浅蓝色；水、离子、结晶添加剂和去污剂保持原样不上色，从而让颜色总数保持较少；“核酸碱基对比”会额外根据标准 DNA/RNA 原子名称区分糖-磷酸骨架和碱基。默认情况下，应用配色还会设置白色背景、柔和光照、ChimeraX 轮廓并隐藏氢原子；取消勾选“应用配色时同时调整场景”（高级设置的“常规”分页）可只改颜色。随后点击“捕获当前场景”更新预览。
-
-仓库仍保留兼容脚本 [`chimerax-chain-palette.py`](chimerax-chain-palette.py)，它使用“经典链配色”。需要从命令行使用时，在 ChimeraX 中运行：
-
-在 ChimeraX 中打开结构后运行：
-
-```text
-runscript /absolute/path/to/chimerax-chain-palette.py
-```
-
-配色按钮和脚本只修改 ChimeraX 的显示颜色及相关显示设置，不修改坐标，也不会覆盖输入结构文件。
-
-## 命令
-
-```text
-illustrate
-illustrate capture [preferAtomColors true|false]
-illustrate save /absolute/path/to/illustrate.png [transparent true|false] [width 1200] [height 1200] [preferAtomColors true|false]
-illustrate reset
-```
-
-`illustrate save` 是同步命令：命令返回时 PNG 已写完。如果工具窗口中已有捕获的快照，则导出该快照（含已调整的参数）；否则直接捕获当前场景并使用默认参数。因此 `illustrate save` 也可用于无界面模式（`ChimeraX --nogui`），且这是该模式下唯一支持的动作；`show`、`capture`、`reset` 需要工具窗口。`preferAtomColors true` 会对仅以 cartoon 或 surface 显示的原子保留其自身颜色，只影响重新捕获。
-## 开发与测试
-
-渲染核心使用 ChimeraX 自带的 NumPy。`tests/reference_render.py` 保留了同一管线的纯 Python 慢速参考实现，NumPy 后端必须与之逐像素一致。运行测试：
-
-```text
-python3 -m unittest discover -s tests -t . -v
-```
-
-当前 bundle 面向 ChimeraX 1.10 及兼容的稳定版 API。超大图像会增加内存占用和渲染时间。
-
-## 许可
-
-本项目使用 Apache License 2.0。非真实感渲染风格和算法参考来自 [ccsb-scripps/Illustrate](https://github.com/ccsb-scripps/Illustrate)。
+Apache License 2.0. The rendering style and algorithm are based on [ccsb-scripps/Illustrate](https://github.com/ccsb-scripps/Illustrate).
