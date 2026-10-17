@@ -8,14 +8,16 @@ Turn the current [ChimeraX](https://www.cgl.ucsf.edu/chimerax/) scene into a fla
 
 ## Gallery
 
-<p align="center"><a href="docs/images/gallery/7K00.png"><img src="docs/images/gallery/7K00.png" width="560" alt="7K00"></a><br><sub><b>7K00</b> · E. coli 70S ribosome · Nucleic Base Contrast</sub></p>
+<table>
+<tr><td align="center"><a href="docs/images/gallery/7K00.png"><img src="docs/images/gallery/7K00.png" width="420" alt="7K00"></a><br><sub><b>7K00</b> · E. coli 70S ribosome<br>Nucleic Base Contrast</sub></td><td align="center"><a href="docs/images/gallery/7E2Y.png"><img src="docs/images/gallery/7E2Y.png" width="420" alt="7E2Y"></a><br><sub><b>7E2Y</b> · serotonin 5-HT1A receptor–Gi complex<br>Cool / Warm Complex</sub></td></tr>
+</table>
 
 <table>
 <tr><td align="center"><a href="docs/images/gallery/5T0C.png"><img src="docs/images/gallery/5T0C.png" width="280" alt="5T0C"></a><br><sub><b>5T0C</b> · human 26S proteasome<br>MotM Spectrum</sub></td><td align="center"><a href="docs/images/gallery/1LP3.png"><img src="docs/images/gallery/1LP3.png" width="280" alt="1LP3"></a><br><sub><b>1LP3</b> · AAV-2 capsid<br>Monochrome Blues</sub></td><td align="center"><a href="docs/images/gallery/1AON.png"><img src="docs/images/gallery/1AON.png" width="280" alt="1AON"></a><br><sub><b>1AON</b> · GroEL/GroES chaperonin<br>Monochrome Blues</sub></td></tr>
 <tr><td align="center"><a href="docs/images/gallery/7DF4.png"><img src="docs/images/gallery/7DF4.png" width="280" alt="7DF4"></a><br><sub><b>7DF4</b> · SARS-CoV-2 spike + ACE2<br>Classic Chains</sub></td><td align="center"><a href="docs/images/gallery/3SN6.png"><img src="docs/images/gallery/3SN6.png" width="280" alt="3SN6"></a><br><sub><b>3SN6</b> · β2 adrenergic receptor–Gs complex<br>Cool / Warm Complex</sub></td><td align="center"><a href="docs/images/gallery/8F7Q.png"><img src="docs/images/gallery/8F7Q.png" width="280" alt="8F7Q"></a><br><sub><b>8F7Q</b> · μ-opioid receptor–Gi complex<br>Classic Chains</sub></td></tr>
 </table>
 
-Made with this plugin from [RCSB PDB](https://www.rcsb.org/) structures (click an image for the full size).
+Made with this plugin from [RCSB PDB](https://www.rcsb.org/) structures (click an image for the full size). In 7E2Y, cholesterol is brown and the bound lipid is purple.
 
 ## Highlights
 
