@@ -15,23 +15,26 @@ short debounce.
 The color-preset menu provides Classic Chains, Cool/Warm Complex,
 Nucleic Base Contrast, MotM Spectrum, and Monochrome Blues. Presets color open
 atomic models by chain and apply element-relative shades. Unless
-<b>Also adjust scene</b> is cleared, they also hide hydrogens and set a white
+<b>Adjust scene when applying colors</b> (Advanced settings, General tab) is cleared, they also hide hydrogens and set a white
 background, soft lighting, and ChimeraX silhouettes. Nucleic Base
 Contrast assigns a separate soft color to every protein or nucleic-acid chain,
 keeps that color on each nucleic sugar-phosphate backbone, and colors the
 nucleobases pale warm gray to reveal the paired interior. This atom-level
 contrast is retained when atom, cartoon, or surface representations are
-captured, because the preset switches on <b>Keep Atom Colors</b> (also available
+captured, because the preset switches on <b>Atom colors</b> (also available
 on its own for any scene). Click <b>Capture Current Scene</b> after coloring to refresh the
 Illustrate snapshot.
 </p>
 <p>
 The default contour level is 4, matching the reference Illustrate input;
 levels 1–3 remain available for sharper outlines. The default shadow floor and
-residue-number difference also follow that reference style. Output-size
-controls are arranged in one row, while style parameters are grouped into
-three columns for contours, boundaries, and atoms/shadows/fog.
-<b>Reset Defaults</b> restores preview size, export size, style values,
+residue-number difference also follow that reference style. The main panel
+holds only the basics: <b>Capture Current Scene</b>, <b>Export PNG</b>, the
+export size, the color preset, and the <b>Transparent</b>, <b>Lock snapshot</b>
+and <b>Atom colors</b> options. All style parameters live in the collapsible
+<b>Advanced settings</b> tabs (Contours, Boundaries, Shading, General), so the
+window keeps the same size when you switch tabs or language.
+The General tab's <b>Reset Defaults</b> restores preview size, export size, style values,
 shadow, transparency, and contour level without clearing the captured scene.
 The interface starts in English; use the <b>中文</b> button to switch between
 English and Chinese.
@@ -40,7 +43,7 @@ English and Chinese.
 The default preview edge is 512 pixels, selected as a balance between readable
 detail and interactive updates, and the preview display remains height-bounded
 so opening the tool does not force the ChimeraX window off-screen. The
-<b>Parameter Help</b> button and control tooltips describe each
+<b>Help</b> button and control tooltips describe each
 parameter, practical ranges, and how larger or smaller values affect the image.
 Export width and height accept 2–16000 pixels (the preview edge up to 2048);
 a 16000 &times; 16000 export needs about 6&ndash;8 GB of memory and several minutes,

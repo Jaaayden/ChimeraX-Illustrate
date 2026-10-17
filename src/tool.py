@@ -9,24 +9,23 @@ from typing import Dict, Optional
 from chimerax.core.errors import UserError
 from chimerax.core.tools import ToolInstance
 from chimerax.ui import MainToolWindow
-from Qt.QtCore import Qt, QTimer
-from Qt.QtGui import QImage, QPixmap, QValidator
+from Qt.QtCore import QRect, QRectF, QSize, Qt, QTimer
+from Qt.QtGui import QColor, QImage, QPainter, QPixmap, QTextOption, QValidator
 from Qt.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
-    QFormLayout,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QDoubleSpinBox,
+    QTabWidget,
     QTextBrowser,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -71,6 +70,9 @@ from .scene import capture_scene as capture_chimerax_scene
 
 
 DEFAULT_STYLE = IllustrationStyle()
+# Minimum height of a row of labels/checkboxes.  Latin and CJK fonts have
+# different line heights; a common minimum keeps the layout the same in both.
+ROW_HEIGHT = 26
 # Substituted into every message and help text that mentions a size limit.
 SIZE_LIMITS = {
     "preview_min": MIN_PREVIEW_SIZE,
@@ -118,6 +120,94 @@ class SizeSpinBox(QSpinBox):
         return applied
 
 
+class PreviewView(QWidget):
+    """Preview area whose size never depends on the image or text it shows.
+
+    A QLabel holding a pixmap reports the pixmap size as its minimum size, so
+    every new preview (or a language change) could resize the whole tool
+    window.  This widget paints the image scaled into whatever space it gets.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._pixmap = None
+        self._text = ""
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def sizeHint(self):
+        return QSize(320, 300)
+
+    def minimumSizeHint(self):
+        return QSize(200, 160)
+
+    def set_image(self, qimage):
+        self._pixmap = QPixmap.fromImage(qimage)
+        self._text = ""
+        self.update()
+
+    def set_text(self, text):
+        self._pixmap = None
+        self._text = text
+        self.update()
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#dddddd"))
+        painter.setPen(QColor("#999999"))
+        painter.drawRect(0, 0, self.width() - 1, self.height() - 1)
+        if self._pixmap is not None:
+            target = self._pixmap.size().scaled(
+                self.size() - QSize(2, 2), Qt.AspectRatioMode.KeepAspectRatio
+            )
+            left = (self.width() - target.width()) // 2
+            top = (self.height() - target.height()) // 2
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            painter.drawPixmap(
+                QRect(left, top, target.width(), target.height()), self._pixmap
+            )
+        elif self._text:
+            painter.setPen(QColor("#555555"))
+            painter.drawText(
+                QRectF(self.rect().adjusted(10, 10, -10, -10)),
+                self._text,
+                QTextOption(Qt.AlignmentFlag.AlignCenter),
+            )
+        painter.end()
+
+
+class ElidedLabel(QLabel):
+    """Single-line label that clips long text instead of widening the window."""
+
+    def __init__(self):
+        super().__init__()
+        self._full_text = ""
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(self.fontMetrics().height() + 6)
+
+    def setText(self, text):  # noqa: N802 (Qt naming)
+        self._full_text = text
+        self.setToolTip(text)
+        self.update()
+
+    def text(self):
+        return self._full_text
+
+    def minimumSizeHint(self):
+        return QSize(10, self.height())
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        shown = self.fontMetrics().elidedText(
+            self._full_text, Qt.TextElideMode.ElideRight, self.width()
+        )
+        painter.drawText(
+            QRectF(self.rect()), shown,
+            QTextOption(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+        )
+        painter.end()
+
+
 class IllustrateTool(ToolInstance):
     SESSION_ENDURING = False
     SESSION_SAVE = False
@@ -144,6 +234,7 @@ class IllustrateTool(ToolInstance):
         self._locked = False
         self._float_controls: Dict[str, QDoubleSpinBox] = {}
         self._parameter_labels: Dict[str, QLabel] = {}
+        self._pages = []
 
         self.tool_window = MainToolWindow(self)
         self._build_ui()
@@ -152,148 +243,149 @@ class IllustrateTool(ToolInstance):
     def _build_ui(self):
         area = self.tool_window.ui_area
         outer = QVBoxLayout(area)
-        outer.setContentsMargins(6, 6, 6, 6)
+        outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(6)
 
+        # --- the basics: capture, export, size, colors, three options -------
         actions = QHBoxLayout()
-        self.capture_button = QPushButton()
-        self.capture_button.clicked.connect(self.capture_scene)
-        actions.addWidget(self.capture_button)
-        self.save_button = QPushButton()
-        self.save_button.clicked.connect(self._choose_save_path)
+        self.capture_button = self._button(self.capture_scene)
+        self.save_button = self._button(self._choose_save_path)
         self.save_button.setEnabled(False)
-        actions.addWidget(self.save_button)
-        self.reset_button = QPushButton()
-        self.reset_button.clicked.connect(self.reset_defaults)
-        actions.addWidget(self.reset_button)
-        self.help_button = QPushButton()
-        self.help_button.clicked.connect(self.show_parameter_help)
-        actions.addWidget(self.help_button)
-        self.language_button = QPushButton()
-        self.language_button.clicked.connect(self._toggle_language)
-        actions.addWidget(self.language_button)
+        actions.addWidget(self.capture_button, 1)
+        actions.addWidget(self.save_button, 1)
         outer.addLayout(actions)
 
-        palette_row = QHBoxLayout()
-        self.palette_label = QLabel()
-        palette_row.addWidget(self.palette_label)
-        self.palette_combo = QComboBox()
-        for preset in available_palette_presets():
-            self.palette_combo.addItem("", preset)
-        palette_row.addWidget(self.palette_combo, 1)
-        self.palette_button = QPushButton()
-        self.palette_button.clicked.connect(self.apply_chain_palette)
-        palette_row.addWidget(self.palette_button)
-        outer.addLayout(palette_row)
-
-        self.adjust_scene_checkbox = QCheckBox()
-        self.adjust_scene_checkbox.setChecked(True)
-        outer.addWidget(self.adjust_scene_checkbox)
-
-        options = QHBoxLayout()
-        self.lock_checkbox = QCheckBox()
-        self.lock_checkbox.toggled.connect(self._set_locked)
-        options.addWidget(self.lock_checkbox)
-        self.transparent_checkbox = QCheckBox()
-        self.transparent_checkbox.setChecked(True)
-        options.addWidget(self.transparent_checkbox)
-        self.prefer_atom_colors_checkbox = QCheckBox()
-        options.addWidget(self.prefer_atom_colors_checkbox)
-        options.addStretch(1)
-        outer.addLayout(options)
-
-        self.preview = QLabel()
-        self.preview.setAlignment(Qt.AlignCenter)
-        self.preview.setMinimumSize(260, 260)
-        self.preview.setMaximumHeight(400)
-        self.preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.preview.setStyleSheet("QLabel { background: #dddddd; border: 1px solid #999999; }")
-        outer.addWidget(self.preview)
-
-        self.size_box = QGroupBox()
-        size_layout = QGridLayout(self.size_box)
-        size_layout.setContentsMargins(10, 6, 10, 6)
-        self.preview_size_label = QLabel()
-        size_layout.addWidget(self.preview_size_label, 0, 0)
-        self.preview_size = self._new_size(
-            DEFAULT_PREVIEW_SIZE, MIN_PREVIEW_SIZE, MAX_PREVIEW_SIZE, "preview_size"
-        )
-        size_layout.addWidget(self.preview_size, 0, 1)
-        self.output_width_label = QLabel()
-        size_layout.addWidget(self.output_width_label, 0, 2)
+        size_row = QHBoxLayout()
+        self.export_size_label = self._row_label()
+        size_row.addWidget(self.export_size_label)
         self.output_width = self._new_size(
             DEFAULT_OUTPUT_WIDTH, MIN_OUTPUT_SIZE, MAX_OUTPUT_SIZE, "output_width"
         )
-        size_layout.addWidget(self.output_width, 0, 3)
-        self.output_height_label = QLabel()
-        size_layout.addWidget(self.output_height_label, 0, 4)
+        size_row.addWidget(self.output_width, 1)
+        size_row.addWidget(QLabel("\u00d7"))
         self.output_height = self._new_size(
             DEFAULT_OUTPUT_HEIGHT, MIN_OUTPUT_SIZE, MAX_OUTPUT_SIZE, "output_height"
         )
-        size_layout.addWidget(self.output_height, 0, 5)
-        for column in (1, 3, 5):
-            size_layout.setColumnStretch(column, 1)
+        size_row.addWidget(self.output_height, 1)
+        outer.addLayout(size_row)
+
+        palette_row = QHBoxLayout()
+        self.palette_label = self._row_label()
+        palette_row.addWidget(self.palette_label)
+        self.palette_combo = QComboBox()
+        self.palette_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.palette_combo.setMinimumContentsLength(8)
+        for preset in available_palette_presets():
+            self.palette_combo.addItem("", preset)
+        palette_row.addWidget(self.palette_combo, 1)
+        self.palette_button = self._button(self.apply_chain_palette)
+        palette_row.addWidget(self.palette_button)
+        outer.addLayout(palette_row)
+
+        options = QHBoxLayout()
+        self.transparent_checkbox = self._checkbox(checked=True)
+        self.lock_checkbox = self._checkbox()
+        self.lock_checkbox.toggled.connect(self._set_locked)
+        self.prefer_atom_colors_checkbox = self._checkbox()
+        for box in (self.transparent_checkbox, self.lock_checkbox,
+                    self.prefer_atom_colors_checkbox):
+            options.addWidget(box, 1)
+        outer.addLayout(options)
+
+        self.preview = PreviewView()
+        outer.addWidget(self.preview, 1)
+
+        self.status = ElidedLabel()
+        outer.addWidget(self.status)
+
+        # --- footer: advanced settings toggle, help, language ---------------
+        footer = QHBoxLayout()
+        self.advanced_toggle = QToolButton()
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.setAutoRaise(True)
+        self.advanced_toggle.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.advanced_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self._reserve_button_width(self.advanced_toggle, "advanced", extra=34)
+        self.advanced_toggle.toggled.connect(self._set_advanced_visible)
+        footer.addWidget(self.advanced_toggle)
+        footer.addStretch(1)
+        self.help_button = self._button(self.show_parameter_help, flat=True)
+        self._reserve_button_width(self.help_button, "help")
+        footer.addWidget(self.help_button)
+        self.language_button = self._button(self._toggle_language, flat=True)
+        self._reserve_button_width(self.language_button, "language")
+        footer.addWidget(self.language_button)
+        outer.addLayout(footer)
+
+        # --- advanced settings: hidden until the user asks for them ---------
+        self.advanced = QTabWidget()
+        self.advanced.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
+        self.advanced.tabBar().setUsesScrollButtons(False)
+        self.advanced.tabBar().setMinimumHeight(ROW_HEIGHT + 6)
+        self.advanced.setVisible(False)
+        # The tab titles differ per language; do not let them set the width.
+        self.advanced.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+
+        contours = self._settings_page()
+        self._add_float(contours, "contour_low", DEFAULT_STYLE.contour_low, 0.0, 1000.0, 2)
+        self._add_float(contours, "contour_high", DEFAULT_STYLE.contour_high, 0.0, 1000.0, 2)
+        self.contour_kernel = self._add_int(
+            contours, "contour_kernel", DEFAULT_STYLE.contour_kernel, 1, 4
+        )
+        self._add_float(contours, "contour_depth_min", DEFAULT_STYLE.contour_depth_min, 0.0, 1000.0, 2)
+        self._add_float(contours, "contour_depth_max", DEFAULT_STYLE.contour_depth_max, 0.001, 1000.0, 2)
+        self._pack_page(contours)
+        self.advanced.addTab(contours.parentWidget(), "")
+
+        boundaries = self._settings_page()
+        self._add_float(boundaries, "subunit_low", DEFAULT_STYLE.subunit_low, 0.0, 1000.0, 2)
+        self._add_float(boundaries, "subunit_high", DEFAULT_STYLE.subunit_high, 0.0, 1000.0, 2)
+        self._add_float(boundaries, "residue_low", DEFAULT_STYLE.residue_low, 0.0, 1000.0, 2)
+        self._add_float(boundaries, "residue_high", DEFAULT_STYLE.residue_high, 0.0, 1000.0, 2)
+        self._add_float(boundaries, "residue_difference", DEFAULT_STYLE.residue_difference, 0.0, 100000.0, 1)
+        self._pack_page(boundaries)
+        self.advanced.addTab(boundaries.parentWidget(), "")
+
+        shading = self._settings_page()
+        self.shadow_checkbox = self._checkbox(checked=DEFAULT_STYLE.shadows)
+        self.shadow_checkbox.toggled.connect(self._schedule_render)
+        shading.addWidget(self.shadow_checkbox, 0, 0, 1, 2)
+        shading.next_row = 1
+        self._add_float(shading, "radius_scale", DEFAULT_STYLE.radius_scale, 0.0, 10.0, 3)
+        self._add_float(shading, "shadow_contribution", DEFAULT_STYLE.shadow_contribution, 0.0, 1.0, 5)
+        self._add_float(shading, "shadow_cone_angle", DEFAULT_STYLE.shadow_cone_angle, 0.0, 100.0, 3)
+        self._add_float(shading, "shadow_depth", DEFAULT_STYLE.shadow_depth, 0.0, 100.0, 3)
+        self._add_float(shading, "shadow_maximum", DEFAULT_STYLE.shadow_maximum, 0.0, 1.0, 3)
+        self._add_float(shading, "fog_front", DEFAULT_STYLE.fog_front, 0.0, 1.0, 3)
+        self._add_float(shading, "fog_back", DEFAULT_STYLE.fog_back, 0.0, 1.0, 3)
+        self._pack_page(shading)
+        self.advanced.addTab(shading.parentWidget(), "")
+
+        general = self._settings_page()
+        self.preview_size_label = self._row_label()
+        general.addWidget(self.preview_size_label, 0, 0)
+        self.preview_size = self._new_size(
+            DEFAULT_PREVIEW_SIZE, MIN_PREVIEW_SIZE, MAX_PREVIEW_SIZE, "preview_size"
+        )
+        general.addWidget(self.preview_size, 0, 1)
+        self.adjust_scene_checkbox = self._checkbox(checked=True)
+        general.addWidget(self.adjust_scene_checkbox, 1, 0, 1, 2)
         self.size_hint = QLabel()
         self.size_hint.setWordWrap(True)
         self.size_hint.setEnabled(False)  # drawn in the muted text color
-        size_layout.addWidget(self.size_hint, 1, 0, 1, 6)
-        outer.addWidget(self.size_box)
-
-        style_widget = QWidget()
-        style_grid = QGridLayout(style_widget)
-        style_grid.setContentsMargins(0, 0, 0, 0)
-        style_grid.setHorizontalSpacing(8)
-
-        self.contour_box = QGroupBox()
-        contour_form = QFormLayout(self.contour_box)
-        self._configure_form(contour_form)
-        self._add_float(contour_form, "contour_low", DEFAULT_STYLE.contour_low, 0.0, 1000.0, 2)
-        self._add_float(contour_form, "contour_high", DEFAULT_STYLE.contour_high, 0.0, 1000.0, 2)
-        self.contour_kernel = self._add_int(
-            contour_form, "contour_kernel", DEFAULT_STYLE.contour_kernel, 1, 4
-        )
-        self._add_float(contour_form, "contour_depth_min", DEFAULT_STYLE.contour_depth_min, 0.0, 1000.0, 2)
-        self._add_float(contour_form, "contour_depth_max", DEFAULT_STYLE.contour_depth_max, 0.001, 1000.0, 2)
-        style_grid.addWidget(self.contour_box, 0, 0)
-
-        self.boundary_box = QGroupBox()
-        boundary_form = QFormLayout(self.boundary_box)
-        self._configure_form(boundary_form)
-        self._add_float(boundary_form, "subunit_low", DEFAULT_STYLE.subunit_low, 0.0, 1000.0, 2)
-        self._add_float(boundary_form, "subunit_high", DEFAULT_STYLE.subunit_high, 0.0, 1000.0, 2)
-        self._add_float(boundary_form, "residue_low", DEFAULT_STYLE.residue_low, 0.0, 1000.0, 2)
-        self._add_float(boundary_form, "residue_high", DEFAULT_STYLE.residue_high, 0.0, 1000.0, 2)
-        self._add_float(boundary_form, "residue_difference", DEFAULT_STYLE.residue_difference, 0.0, 100000.0, 1)
-        style_grid.addWidget(self.boundary_box, 0, 1)
-
-        self.shading_box = QGroupBox()
-        shading_form = QFormLayout(self.shading_box)
-        self._configure_form(shading_form)
-        self._add_float(shading_form, "radius_scale", DEFAULT_STYLE.radius_scale, 0.0, 10.0, 3)
-        self._add_float(shading_form, "shadow_contribution", DEFAULT_STYLE.shadow_contribution, 0.0, 1.0, 5)
-        self._add_float(shading_form, "shadow_cone_angle", DEFAULT_STYLE.shadow_cone_angle, 0.0, 100.0, 3)
-        self._add_float(shading_form, "shadow_depth", DEFAULT_STYLE.shadow_depth, 0.0, 100.0, 3)
-        self._add_float(shading_form, "shadow_maximum", DEFAULT_STYLE.shadow_maximum, 0.0, 1.0, 3)
-        self._add_float(shading_form, "fog_front", DEFAULT_STYLE.fog_front, 0.0, 1.0, 3)
-        self._add_float(shading_form, "fog_back", DEFAULT_STYLE.fog_back, 0.0, 1.0, 3)
-        self.shadow_checkbox = QCheckBox()
-        self.shadow_checkbox.setChecked(DEFAULT_STYLE.shadows)
-        self.shadow_checkbox.toggled.connect(self._schedule_render)
-        shading_form.addRow(self.shadow_checkbox)
-        style_grid.addWidget(self.shading_box, 0, 2)
-        for column in range(3):
-            style_grid.setColumnStretch(column, 1)
-
-        style_scroll = QScrollArea()
-        style_scroll.setWidgetResizable(True)
-        style_scroll.setMinimumHeight(180)
-        style_scroll.setMaximumHeight(300)
-        style_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        style_scroll.setWidget(style_widget)
-        outer.addWidget(style_scroll, 1)
-
-        self.status = QLabel()
-        outer.addWidget(self.status)
+        self.size_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        general.addWidget(self.size_hint, 2, 0, 1, 2)
+        self.reset_button = self._button(self.reset_defaults)
+        general.addWidget(self.reset_button, 3, 0, 1, 2)
+        self._pack_page(general)
+        self.advanced.addTab(general.parentWidget(), "")
+        outer.addWidget(self.advanced)
 
         self._timer = QTimer()
         self._timer.setSingleShot(True)
@@ -308,16 +400,84 @@ class IllustrateTool(ToolInstance):
         self.status.setText(self._tr("status_waiting"))
 
     @staticmethod
-    def _configure_form(form):
-        form.setContentsMargins(8, 6, 8, 6)
-        form.setHorizontalSpacing(6)
-        form.setVerticalSpacing(4)
+    def _button(handler, flat=False):
+        """Push button whose width never depends on its (translated) text."""
 
-    def _add_int(self, form, key, value, low, high):
-        control = self._new_int(value, low, high)
+        button = QPushButton()
+        button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        button.setFlat(flat)
+        button.clicked.connect(handler)
+        return button
+
+    def _reserve_button_width(self, button, key, extra=22):
+        """Fix a button's width to its widest translation.
+
+        Small footer buttons need a real width, and it must not change when
+        the interface language is switched.
+        """
+
+        metrics = button.fontMetrics()
+        widest = max(
+            metrics.horizontalAdvance(UI_TEXT[language][key]) for language in UI_TEXT
+        )
+        button.setFixedWidth(widest + extra)
+        # Latin and CJK fonts have different line heights; pin the height too.
+        button.setFixedHeight(26)
+        button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    @staticmethod
+    def _row_label():
         label = QLabel()
+        label.setMinimumHeight(ROW_HEIGHT)
+        return label
+
+    @staticmethod
+    def _checkbox(checked=False):
+        box = QCheckBox()
+        box.setChecked(checked)
+        box.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        box.setMinimumHeight(ROW_HEIGHT)
+        return box
+
+    def _settings_page(self):
+        """Return the grid of a new settings tab (label column stretches)."""
+
+        page = QWidget()
+        self._pages.append(page)  # keep the page (and its layout) alive
+        grid = QGridLayout(page)
+        grid.setContentsMargins(10, 8, 10, 8)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(5)
+        grid.setColumnStretch(0, 1)
+        grid.next_row = 0
+        return grid
+
+    @staticmethod
+    def _pack_page(grid):
+        """Keep a settings page's rows at the top of its tab."""
+
+        grid.setRowStretch(grid.next_row, 1)
+
+    def _set_advanced_visible(self, visible):
+        self.advanced.setVisible(visible)
+        self.advanced_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if visible else Qt.ArrowType.RightArrow
+        )
+
+    def _add_label(self, grid, key):
+        label = QLabel()
+        label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        label.setMinimumHeight(ROW_HEIGHT)
         self._parameter_labels[key] = label
-        form.addRow(label, control)
+        row = grid.next_row
+        grid.next_row += 1
+        grid.addWidget(label, row, 0)
+        return row
+
+    def _add_int(self, grid, key, value, low, high):
+        row = self._add_label(grid, key)
+        control = self._new_int(value, low, high)
+        grid.addWidget(control, row, 1)
         return control
 
     def _new_size(self, value, low, high, key):
@@ -334,19 +494,18 @@ class IllustrateTool(ToolInstance):
         control = QSpinBox()
         control.setRange(low, high)
         control.setValue(value)
-        control.setMaximumWidth(110)
+        control.setFixedWidth(100)
         return control
 
-    def _add_float(self, form, key, value, low, high, decimals):
+    def _add_float(self, grid, key, value, low, high, decimals):
+        row = self._add_label(grid, key)
         control = QDoubleSpinBox()
         control.setRange(low, high)
         control.setDecimals(decimals)
         control.setSingleStep(0.1 if decimals <= 2 else 0.01)
         control.setValue(value)
-        control.setMaximumWidth(105)
-        label = QLabel()
-        self._parameter_labels[key] = label
-        form.addRow(label, control)
+        control.setFixedWidth(100)
+        grid.addWidget(control, row, 1)
         self._float_controls[key] = control
         return control
 
@@ -364,29 +523,31 @@ class IllustrateTool(ToolInstance):
         self.reset_button.setText(self._tr("reset"))
         self.help_button.setText(self._tr("help"))
         self.language_button.setText(self._tr("language"))
+        self.advanced_toggle.setText(self._tr("advanced"))
+        self.export_size_label.setText(self._tr("export_size"))
         self.palette_label.setText(self._tr("palette_label"))
         self.palette_button.setText(self._tr("apply_palette"))
         self.palette_button.setToolTip(self._tr("palette_tooltip"))
-        self.lock_checkbox.setText(self._tr("lock"))
         self.transparent_checkbox.setText(self._tr("transparent"))
+        self.transparent_checkbox.setToolTip(self._tr("transparent_tooltip"))
+        self.lock_checkbox.setText(self._tr("lock"))
+        self.lock_checkbox.setToolTip(self._tr("lock_tooltip"))
         self.prefer_atom_colors_checkbox.setText(self._tr("prefer_atom_colors"))
         self.prefer_atom_colors_checkbox.setToolTip(self._tr("prefer_atom_colors_tooltip"))
         self.adjust_scene_checkbox.setText(self._tr("adjust_scene"))
         self.adjust_scene_checkbox.setToolTip(self._tr("adjust_scene_tooltip"))
-        self.size_box.setTitle(self._tr("size_group"))
         self.preview_size_label.setText(self._tr("preview_size"))
         self.size_hint.setText(self._tr(
             "size_hint", preview_min=MIN_PREVIEW_SIZE, preview_max=MAX_PREVIEW_SIZE,
             export_min=MIN_OUTPUT_SIZE, export_max=MAX_OUTPUT_SIZE,
         ))
-        self.output_width_label.setText(self._tr("output_width"))
-        self.output_height_label.setText(self._tr("output_height"))
-        self.preview_size.setToolTip(self._tr("preview_tooltip"))
         self.output_width.setToolTip(self._tr("width_tooltip"))
         self.output_height.setToolTip(self._tr("height_tooltip"))
-        self.contour_box.setTitle(self._tr("contour_group"))
-        self.boundary_box.setTitle(self._tr("boundary_group"))
-        self.shading_box.setTitle(self._tr("shading_group"))
+        self.preview_size.setToolTip(self._tr("preview_tooltip"))
+        for index, key in enumerate(
+            ("tab_contours", "tab_boundaries", "tab_shading", "tab_general")
+        ):
+            self.advanced.setTabText(index, self._tr(key))
         self.shadow_checkbox.setText(self._tr("shadow_enabled"))
         for key, label in self._parameter_labels.items():
             label.setText(PARAMETER_LABELS[self._language][key])
@@ -408,7 +569,7 @@ class IllustrateTool(ToolInstance):
                 index, PALETTE_LABELS[self._language][preset]
             )
         if self._scene is None:
-            self.preview.setText(self._tr("preview_empty"))
+            self.preview.set_text(self._tr("preview_empty"))
 
     def _set_locked(self, locked):
         self._locked = bool(locked)
@@ -558,8 +719,7 @@ class IllustrateTool(ToolInstance):
         self._view = None
         clear_caches()
         self.save_button.setEnabled(False)
-        self.preview.setPixmap(QPixmap())
-        self.preview.setText(message)
+        self.preview.set_text(message)
         self._set_status(message)
 
     def clear_scene(self):
@@ -627,10 +787,7 @@ class IllustrateTool(ToolInstance):
         if format_rgba is None:
             format_rgba = QImage.Format.Format_RGBA8888
         qimage = QImage(rgba, image.width, image.height, image.width * 4, format_rgba).copy()
-        pixmap = QPixmap.fromImage(qimage)
-        self.preview.setPixmap(pixmap.scaled(
-            self.preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-        ))
+        self.preview.set_image(qimage)
 
     def _choose_save_path(self):
         if not self.has_snapshot():
