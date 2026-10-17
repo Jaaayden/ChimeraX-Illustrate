@@ -35,10 +35,9 @@ from .export import (
     DEFAULT_OUTPUT_HEIGHT,
     DEFAULT_OUTPUT_WIDTH,
     DEFAULT_PREVIEW_SIZE,
+    EXPORT_PRESET_SIZES,
     MAX_OUTPUT_SIZE,
-    MAX_PREVIEW_SIZE,
     MIN_OUTPUT_SIZE,
-    MIN_PREVIEW_SIZE,
     check_output_size,
     estimated_memory_gb,
     is_large_export,
@@ -75,11 +74,9 @@ DEFAULT_STYLE = IllustrationStyle()
 # different line heights; a common minimum keeps the layout the same in both.
 ROW_HEIGHT = 26
 # Width of the controls column when the preview sits beside it.
-SIDE_PANEL_WIDTH = 330
+SIDE_PANEL_WIDTH = 310
 # Substituted into every message and help text that mentions a size limit.
 SIZE_LIMITS = {
-    "preview_min": MIN_PREVIEW_SIZE,
-    "preview_max": MAX_PREVIEW_SIZE,
     "export_min": MIN_OUTPUT_SIZE,
     "export_max": MAX_OUTPUT_SIZE,
 }
@@ -98,14 +95,15 @@ class SizeSpinBox(QSpinBox):
         self.size_key = key
         self.on_clamp = on_clamp
         self.setRange(low, high)
-        self.setSuffix(" px")
+        self.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         # Re-render when editing finishes, not on every typed digit.
         self.setKeyboardTracking(False)
         self.setValue(value)
-        self.setMaximumWidth(115)
+        self.setFixedWidth(70)
 
     def _typed_number(self, text):
-        digits = text.replace(self.suffix(), "").strip()
+        digits = text.strip()
         return int(digits) if digits.isdigit() and len(digits) <= 9 else None
 
     def validate(self, text, pos):
@@ -227,7 +225,7 @@ class AdaptiveScrollArea(QScrollArea):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
     def sizeHint(self):
-        return QSize(340, 580)
+        return QSize(700, 400)
 
     def minimumSizeHint(self):
         return QSize(290, 200)
@@ -303,16 +301,38 @@ class IllustrateTool(ToolInstance):
         size_row = QHBoxLayout()
         self.export_size_label = self._row_label()
         size_row.addWidget(self.export_size_label)
+        self.size_combo = QComboBox()
+        self.size_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.size_combo.setMinimumContentsLength(8)
+        for edge in EXPORT_PRESET_SIZES:
+            self.size_combo.addItem("%d \u00d7 %d" % (edge, edge), edge)
+        self.size_combo.addItem("", "custom")
+        self.size_combo.setCurrentIndex(EXPORT_PRESET_SIZES.index(DEFAULT_OUTPUT_WIDTH))
+        size_row.addWidget(self.size_combo, 1)
+        outer.addLayout(size_row)
+
+        # Width and height are only shown for "Custom": most people pick a
+        # preset and never need them.
+        self.custom_size = QWidget()
+        custom_row = QHBoxLayout(self.custom_size)
+        custom_row.setContentsMargins(0, 0, 0, 0)
+        custom_row.setSpacing(6)
         self.output_width = self._new_size(
             DEFAULT_OUTPUT_WIDTH, MIN_OUTPUT_SIZE, MAX_OUTPUT_SIZE, "output_width"
         )
-        size_row.addWidget(self.output_width, 1)
-        size_row.addWidget(QLabel("\u00d7"))
         self.output_height = self._new_size(
             DEFAULT_OUTPUT_HEIGHT, MIN_OUTPUT_SIZE, MAX_OUTPUT_SIZE, "output_height"
         )
-        size_row.addWidget(self.output_height, 1)
-        outer.addLayout(size_row)
+        custom_row.addStretch(1)
+        custom_row.addWidget(self.output_width)
+        custom_row.addWidget(QLabel("\u00d7"))
+        custom_row.addWidget(self.output_height)
+        custom_row.addStretch(1)
+        self.custom_size.setVisible(False)
+        outer.addWidget(self.custom_size)
+        self.size_combo.currentIndexChanged.connect(self._size_choice_changed)
 
         palette_row = QHBoxLayout()
         self.palette_label = self._row_label()
@@ -372,6 +392,9 @@ class IllustrateTool(ToolInstance):
         self.advanced.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
         self.advanced.tabBar().setUsesScrollButtons(False)
         self.advanced.tabBar().setMinimumHeight(ROW_HEIGHT + 6)
+        # Tighter padding so the four titles fit the narrow controls column.
+        self.advanced.tabBar().setStyleSheet("QTabBar::tab { padding: 5px 4px; }")
+        self.advanced.tabBar().setExpanding(True)
         self.advanced.setVisible(False)
         # The tab titles differ per language; do not let them set the width.
         self.advanced.setSizePolicy(
@@ -414,21 +437,11 @@ class IllustrateTool(ToolInstance):
         self.advanced.addTab(shading.parentWidget(), "")
 
         general = self._settings_page()
-        self.preview_size_label = self._row_label()
-        general.addWidget(self.preview_size_label, 0, 0)
-        self.preview_size = self._new_size(
-            DEFAULT_PREVIEW_SIZE, MIN_PREVIEW_SIZE, MAX_PREVIEW_SIZE, "preview_size"
-        )
-        general.addWidget(self.preview_size, 0, 1)
         self.adjust_scene_checkbox = self._checkbox(checked=True)
-        general.addWidget(self.adjust_scene_checkbox, 1, 0, 1, 2)
-        self.size_hint = QLabel()
-        self.size_hint.setWordWrap(True)
-        self.size_hint.setEnabled(False)  # drawn in the muted text color
-        self.size_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        general.addWidget(self.size_hint, 2, 0, 1, 2)
+        general.addWidget(self.adjust_scene_checkbox, 0, 0, 1, 2)
+        general.next_row = 1
         self.reset_button = self._button(self.reset_defaults)
-        general.addWidget(self.reset_button, 3, 0, 1, 2)
+        general.addWidget(self.reset_button, 1, 0, 1, 2)
         self._pack_page(general)
         self.advanced.addTab(general.parentWidget(), "")
         settings.addWidget(self.advanced)
@@ -441,8 +454,7 @@ class IllustrateTool(ToolInstance):
         for control in self._float_controls.values():
             control.valueChanged.connect(self._schedule_render)
         self.contour_kernel.valueChanged.connect(self._schedule_render)
-        self.preview_size.valueChanged.connect(self._schedule_render)
-        self._apply_layout_mode("vertical")
+        self._apply_layout_mode("horizontal")
         self._refresh_language()
         self.status.setText(self._tr("status_waiting"))
 
@@ -485,13 +497,15 @@ class IllustrateTool(ToolInstance):
     def _on_area_resized(self, width, height):
         """Pick the layout that gives the (square) preview the most room."""
 
-        mode = self._layout_mode or "vertical"
+        mode = self._layout_mode or "horizontal"
+        # Side by side is the default (a wide, short window is the usual
+        # shape).  Stack the blocks only when the window is narrow or tall.
         # Different thresholds for switching there and back avoid flickering
         # between the two layouts while the user drags the window edge.
-        if mode == "vertical" and width >= max(640, 1.35 * height):
-            mode = "horizontal"
-        elif mode == "horizontal" and width < max(580, 1.1 * height):
+        if mode == "horizontal" and width < max(520, 0.95 * height):
             mode = "vertical"
+        elif mode == "vertical" and width >= max(580, 1.15 * height):
+            mode = "horizontal"
         self._apply_layout_mode(mode)
         if mode == "vertical":
             # The preview is square: ask for about that much height (scrolling
@@ -501,7 +515,7 @@ class IllustrateTool(ToolInstance):
             self.preview.setMinimumHeight(smallest)
             self.preview.setMaximumHeight(max(smallest, width - 16))
         else:
-            self.preview.setMinimumHeight(220)
+            self.preview.setMinimumHeight(200)
             self.preview.setMaximumHeight(16777215)
 
     @staticmethod
@@ -588,6 +602,29 @@ class IllustrateTool(ToolInstance):
     def _new_size(self, value, low, high, key):
         return SizeSpinBox(value, low, high, key, self._size_clamped)
 
+    def _size_choice_changed(self, index):
+        edge = self.size_combo.itemData(index)
+        custom = edge == "custom"
+        self.custom_size.setVisible(custom)
+        if custom:
+            return
+        for box in (self.output_width, self.output_height):
+            self._set_control_value(box, edge)
+        if is_large_export(edge, edge):
+            self._set_status(self._tr(
+                "size_large_hint", width=edge, height=edge,
+                gb="%.0f" % max(1.0, estimated_memory_gb(edge, edge)),
+            ))
+
+    def _select_size_preset(self, edge):
+        """Select a preset (or Custom if ``edge`` is not one) and sync the boxes."""
+
+        if edge in EXPORT_PRESET_SIZES:
+            self.size_combo.setCurrentIndex(EXPORT_PRESET_SIZES.index(edge))
+        else:
+            self.size_combo.setCurrentIndex(self.size_combo.count() - 1)
+        self._size_choice_changed(self.size_combo.currentIndex())
+
     def _size_clamped(self, box, _requested, applied):
         self._set_status(self._tr(
             "size_clamped", name=self._tr(box.size_key),
@@ -641,14 +678,10 @@ class IllustrateTool(ToolInstance):
         self.prefer_atom_colors_checkbox.setToolTip(self._tr("prefer_atom_colors_tooltip"))
         self.adjust_scene_checkbox.setText(self._tr("adjust_scene"))
         self.adjust_scene_checkbox.setToolTip(self._tr("adjust_scene_tooltip"))
-        self.preview_size_label.setText(self._tr("preview_size"))
-        self.size_hint.setText(self._tr(
-            "size_hint", preview_min=MIN_PREVIEW_SIZE, preview_max=MAX_PREVIEW_SIZE,
-            export_min=MIN_OUTPUT_SIZE, export_max=MAX_OUTPUT_SIZE,
-        ))
+        self.size_combo.setItemText(self.size_combo.count() - 1, self._tr("size_custom"))
+        self.size_combo.setToolTip(self._tr("export_size_tooltip"))
         self.output_width.setToolTip(self._tr("width_tooltip"))
         self.output_height.setToolTip(self._tr("height_tooltip"))
-        self.preview_size.setToolTip(self._tr("preview_tooltip"))
         for index, key in enumerate(
             ("tab_contours", "tab_boundaries", "tab_shading", "tab_general")
         ):
@@ -712,9 +745,7 @@ class IllustrateTool(ToolInstance):
         for key, control in self._float_controls.items():
             self._set_control_value(control, getattr(DEFAULT_STYLE, key))
         self._set_control_value(self.contour_kernel, DEFAULT_STYLE.contour_kernel)
-        self._set_control_value(self.preview_size, DEFAULT_PREVIEW_SIZE)
-        self._set_control_value(self.output_width, DEFAULT_OUTPUT_WIDTH)
-        self._set_control_value(self.output_height, DEFAULT_OUTPUT_HEIGHT)
+        self._select_size_preset(DEFAULT_OUTPUT_WIDTH)
 
         blocked = self.shadow_checkbox.blockSignals(True)
         try:
@@ -764,7 +795,7 @@ class IllustrateTool(ToolInstance):
         if self._locked:
             self._set_status(self._tr("capture_locked"))
             return False
-        size = self.preview_size.value()
+        size = DEFAULT_PREVIEW_SIZE
         try:
             scene, view, style, warnings = capture_chimerax_scene(
                 self.session, size, size,
@@ -849,7 +880,7 @@ class IllustrateTool(ToolInstance):
             self._preview_future.cancel()
         self._generation += 1
         generation = self._generation
-        width = self.preview_size.value()
+        width = DEFAULT_PREVIEW_SIZE
         # The preview uses the same renderer as the export, so it shows the
         # style the exported PNG will have.
         self._preview_future = self._executor.submit(

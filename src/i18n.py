@@ -44,7 +44,7 @@ PARAMETER_HELP_HTML_ZH = """
 <li><b>前景/背景雾比例</b>：保留原色的比例，范围 0–1。1 表示不雾化；越小越接近背景雾色。</li>
 </ul>
 <h3>输出尺寸</h3>
-<p>预览边长范围为 {preview_min}–{preview_max}；导出宽度和高度范围为 {export_min}–{export_max}。原始 Fortran 版本为了固定帧缓冲区把尺寸限制在 3000 像素；本插件使用动态 NumPy 缓冲区，因此提高到 {export_max}，但尺寸越大，内存占用和渲染时间会按像素数增加（16000×16000 约需 6–8 GB 内存和数分钟）。导出时会按 1200 像素参考比例同步缩放轮廓、边界和阴影的像素邻域，因此只改变输出尺寸不会明显改变整体风格。小于 1200 像素宽的图像会先按 1200 像素渲染，再用面积平均缩小，所以小图的轮廓粗细与 1200 像素时一致；预览使用同样的方式，所见即所得。</p>
+<p>导出尺寸可在预设（300、600、1200、2400、4800、8000 像素的正方形）中选择，也可选“自定义”输入宽度和高度，范围为 {export_min}–{export_max}。原始 Fortran 版本为了固定帧缓冲区把尺寸限制在 3000 像素；本插件使用动态 NumPy 缓冲区，因此提高到 {export_max}，但尺寸越大，内存占用和渲染时间会按像素数增加（16000×16000 约需 6–8 GB 内存和数分钟）。导出时会按 1200 像素参考比例同步缩放轮廓、边界和阴影的像素邻域，因此只改变输出尺寸不会明显改变整体风格。小于 1200 像素宽的图像会先按 1200 像素渲染，再用面积平均缩小，所以小图的轮廓粗细与 1200 像素时一致；预览使用同样的方式，所见即所得。</p>
 """
 
 UI_TEXT = {
@@ -59,9 +59,11 @@ UI_TEXT = {
         "lock": "Lock scene",
         "transparent": "Transparent",
         "preview_empty": "Capture a ChimeraX scene to begin",
-        "preview_size": "Preview",
         "output_width": "Width",
-        "export_size": "Export size",
+        "export_size": "Export size (px)",
+        "size_custom": "Custom\u2026",
+        "export_size_tooltip": "Size of the exported PNG. Every size keeps the 1200 px look. Choose Custom to enter any width and height ({export_min}\u2013{export_max} px).",
+        "size_large_hint": "{width}\u00d7{height} is a large image: about {gb} GB of memory and possibly several minutes",
         "advanced": "Advanced settings",
         "tab_contours": "Contour",
         "tab_boundaries": "Borders",
@@ -104,9 +106,7 @@ UI_TEXT = {
         "adjust_scene": "Adjust scene when applying colors",
         "adjust_scene_tooltip": "Also hide hydrogens, set a white background, soft lighting, and ChimeraX silhouettes when applying a color preset.",
         "capture_locked": "Snapshot is locked; unlock it to capture again",
-        "size_hint": "Preview {preview_min}–{preview_max} px · Export {export_min}–{export_max} px. Exports keep the 1200 px look at every size.",
         "size_clamped": "{name} must be {low}–{high} px; using {value}",
-        "preview_tooltip": "Preview edge length, {preview_min}–{preview_max}. The 512-pixel default balances clarity and interactive speed.",
         "width_tooltip": "PNG width, {export_min}–{export_max}. Larger images require more rendering time and memory.",
         "height_tooltip": "PNG height, {export_min}–{export_max}. Larger images require more rendering time and memory.",
     },
@@ -121,9 +121,11 @@ UI_TEXT = {
         "lock": "锁定快照",
         "transparent": "透明背景",
         "preview_empty": "请先捕获一个 ChimeraX 场景",
-        "preview_size": "预览边长",
         "output_width": "导出宽度",
-        "export_size": "导出尺寸",
+        "export_size": "导出尺寸（像素）",
+        "size_custom": "自定义…",
+        "export_size_tooltip": "导出 PNG 的尺寸。任意尺寸都保持 1200 像素时的样式。选“自定义”可输入任意宽度和高度（{export_min}–{export_max} 像素）。",
+        "size_large_hint": "{width}×{height} 是很大的图像：约需 {gb} GB 内存，可能需要数分钟",
         "advanced": "高级设置",
         "tab_contours": "轮廓",
         "tab_boundaries": "边界",
@@ -166,9 +168,7 @@ UI_TEXT = {
         "adjust_scene": "应用配色时同时调整场景",
         "adjust_scene_tooltip": "应用配色时同时隐藏氢原子，并设置白色背景、柔和光照和 ChimeraX 轮廓线。",
         "capture_locked": "快照已锁定；请先解锁再捕获",
-        "size_hint": "预览 {preview_min}–{preview_max} 像素 · 导出 {export_min}–{export_max} 像素。任意导出尺寸都保持 1200 像素时的样式。",
         "size_clamped": "{name}须在 {low}–{high} 像素之间，已改为 {value}",
-        "preview_tooltip": "预览边长范围 {preview_min}–{preview_max}。默认 512，在清晰度和交互速度之间取得平衡。",
         "width_tooltip": "导出 PNG 的宽度，范围 {export_min}–{export_max}。尺寸越大，渲染越慢、占用内存越多。",
         "height_tooltip": "导出 PNG 的高度，范围 {export_min}–{export_max}。尺寸越大，渲染越慢、占用内存越多。",
     },
@@ -260,8 +260,8 @@ occlusion strength, spread, depth sensitivity, and minimum brightness.</li>
 blend toward the fog color.</li>
 </ul>
 <h3>Output</h3>
-<p>The preview range is {preview_min}–{preview_max} pixels; 512 is the default balance of clarity
-and speed. PNG dimensions range from {export_min}–{export_max} pixels (a 16000 × 16000 image needs about 6–8 GB of memory and several minutes). Pixel-based neighborhoods
+<p>Choose the export size from the presets (square 300, 600, 1200, 2400, 4800 or 8000 pixels) or pick Custom to enter
+a width and height. PNG dimensions range from {export_min}–{export_max} pixels (a 16000 × 16000 image needs about 6–8 GB of memory and several minutes). Pixel-based neighborhoods
 are scaled from the 1200-pixel reference, so changing output size does not
 substantially change the illustration style.</p>
 """

@@ -9,8 +9,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from src.export import (
     LARGE_EXPORT_PIXELS,
+    EXPORT_PRESET_SIZES,
     MAX_OUTPUT_SIZE,
-    MAX_PREVIEW_SIZE,
     ExportError,
     check_output_size,
     estimated_memory_gb,
@@ -45,7 +45,9 @@ class OutputSizeTests(unittest.TestCase):
 
     def test_limits_are_consistent(self):
         self.assertGreaterEqual(MAX_OUTPUT_SIZE, 16000)
-        self.assertGreaterEqual(MAX_PREVIEW_SIZE, 2048)
+        self.assertIn(1200, EXPORT_PRESET_SIZES)
+        self.assertEqual(list(EXPORT_PRESET_SIZES), sorted(EXPORT_PRESET_SIZES))
+        self.assertLessEqual(max(EXPORT_PRESET_SIZES), MAX_OUTPUT_SIZE)
 
     def test_large_export_notice_and_memory_estimate(self):
         self.assertFalse(is_large_export(1200, 1200))

@@ -15,12 +15,12 @@ Illustrate for ChimeraX 是一个 ChimeraX bundle，将当前 ChimeraX 场景转
 - 捕获当前显示为 atom、cartoon 或 molecular surface 的分子内容，并读取对应颜色、原子半径和分组信息。
 - 内置五套插图配色方案，可直接为当前原子模型按链着色，并可区分核酸骨架与碱基。
 - 捕获当前 ChimeraX 相机和视角；渲染器使用 Illustrate 风格的正交投影模型。
-- 默认 512 像素预览和参数修改后的防抖更新。
+- 参数修改后的防抖实时预览。
 - 轮廓、亚基边界、残基边界、软阴影和雾化控制。
 - 默认英文界面，可在工具窗口中一键切换为中文。
-- 主界面保持简洁（捕获、导出尺寸、配色方案、三个选项、预览）；详细参数放在可折叠的“高级设置”分页中（轮廓、边界、阴影与雾、常规），默认只显示基本操作，切换语言或分页时窗口大小也不会变化。
+- 主界面左侧是控件、右侧是大尺寸正方形预览（仅在窗口很窄或很高时才改为上下排列，窗口偏矮时改为滚动而不是压扁预览）；详细参数放在可折叠的“高级设置”分页中（轮廓、边界、阴影与雾、常规），默认只显示基本操作，切换语言或分页时窗口大小也不会变化。
 - 透明或不透明 PNG 导出。
-- 预览边长最大 2048 像素，导出宽度和高度支持 2–16000 像素；超过 2048 像素的图像使用分块处理。超大导出很吃资源（约 8000×8000：2 GB、不到 1 分钟；16000×16000：约 6–8 GB、数分钟），开始前会在状态栏提示。任何尺寸都保持 1200 像素渲染时的样式：宽度小于 1200 的图像先按 1200 像素渲染，再用面积平均缩小，预览同理；尺寸输入超出范围时会自动限幅并在状态栏提示。
+- 导出尺寸提供预设（300、600、1200、2400、4800、8000 像素的正方形），也可选“自定义”输入 2–16000 像素的任意宽度和高度；超过 2048 像素的图像使用分块处理。超大导出很吃资源（约 8000×8000：2 GB、不到 1 分钟；16000×16000：约 6–8 GB、数分钟），开始前会在状态栏提示。任何尺寸都保持 1200 像素渲染时的样式：宽度小于 1200 的图像先按 1200 像素渲染，再用面积平均缩小，预览同理；自定义尺寸超出范围时会自动限幅并在状态栏提示。
 - 使用栅格/阴影缓存、有效区域裁剪、NumPy 向量化和多核阴影计算加速预览及高分辨率导出；PNG 在后台分块合成、压缩和写盘，不阻塞 ChimeraX 界面。
 - 提供参数说明、实用范围和默认参数恢复功能。
 
@@ -60,7 +60,7 @@ devel build ~/ChimeraX-Illustrate
 如果已经下载或构建了 `.whl` 文件，可在 ChimeraX 命令行中使用 `toolshed install` 安装。例如，将 wheel 放在 `~/Downloads` 后执行：
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.24-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
 ```
 
 安装后重启 ChimeraX，再输入 `illustrate`。
@@ -84,7 +84,7 @@ toolshed list installed
 - **用 wheel 文件安装的**：从 [Releases 页面](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest)下载最新的 `.whl` 文件，然后在 ChimeraX 命令行中执行（把版本号和路径换成实际下载的文件）：
 
   ```text
-  toolshed install ~/Downloads/chimerax_illustrate-0.1.24-py3-none-any.whl
+  toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
   ```
 
   新版本会直接替换旧版本，不需要先卸载。
@@ -103,14 +103,14 @@ toolshed list installed
 **更新后仍是旧版本，或者插件无法打开？** 可以强制重新安装当前 wheel：
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.24-py3-none-any.whl reinstall true
+toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl reinstall true
 ```
 
 仍不行时，先卸载再安装，然后重启 ChimeraX：
 
 ```text
 toolshed uninstall ChimeraX-Illustrate
-toolshed install ~/Downloads/chimerax_illustrate-0.1.24-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.25-py3-none-any.whl
 ```
 
 ## 使用
@@ -119,7 +119,7 @@ toolshed install ~/Downloads/chimerax_illustrate-0.1.24-py3-none-any.whl
 2. 调整 ChimeraX 中的颜色、显示状态和视角。
 3. 如需自动配色，在工具窗口的“配色方案”中选择方案并点击“应用配色”。
 4. 点击“捕获当前场景”。
-5. 设置“导出尺寸”并点击“导出 PNG”；使用默认设置时到这一步即可。
+5. 在“导出尺寸”菜单中选择尺寸（或选“自定义”），点击“导出 PNG”；使用默认设置时到这一步即可。
 6. 需要微调效果时，展开“高级设置”，一边看预览一边调整参数。
 
 配色方案下面的一行选项：“透明背景”（导出透明背景的 PNG）、“锁定快照”（保持当前捕获结果）、“原子颜色”（对 cartoon/surface 显示的原子保留各自的原子颜色）。

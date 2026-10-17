@@ -20,11 +20,15 @@ from .render import (
 from .scene import WARNING_NO_ATOMS, WARNING_PERSPECTIVE, capture_scene
 
 
-DEFAULT_PREVIEW_SIZE = 512
-MIN_PREVIEW_SIZE = 64
-MAX_PREVIEW_SIZE = 2048
+# Edge of the square the live preview is rendered at.  Anything below 1200 is
+# rendered at 1200 internally and shrunk, so this costs no more than a smaller
+# preview would.
+DEFAULT_PREVIEW_SIZE = 768
 DEFAULT_OUTPUT_WIDTH = 1200
 DEFAULT_OUTPUT_HEIGHT = 1200
+# Square sizes offered in the tool's export-size menu (any other size is
+# available through "Custom").
+EXPORT_PRESET_SIZES = (300, 600, 1200, 2400, 4800, 8000)
 MIN_OUTPUT_SIZE = 2
 MAX_OUTPUT_SIZE = MAX_RENDER_SIZE
 # Images with more pixels than this get a memory/time notice before rendering.
