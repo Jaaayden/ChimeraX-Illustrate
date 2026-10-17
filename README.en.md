@@ -164,34 +164,6 @@ python3 -m unittest discover -s tests -t . -v
 
 The bundle targets ChimeraX 1.10 and compatible stable APIs. Very large images require more memory and render time.
 
-## Changelog
-
-Release downloads and notes are on the [Releases page](https://github.com/Jaaayden/ChimeraX-Illustrate/releases).
-
-### 0.1.22
-
-- Preview edge up to 2048 pixels (was 1024) and export up to 16000 × 16000 pixels (was 8000).
-- Very large exports (above 36 megapixels) show a memory and time estimate before rendering starts.
-- Images above 2048 pixels are tiled and the full-frame copies at the end of the pipeline are gone, which lowers peak memory (for a 20,000-atom scene: 4096 px from 3.7 to 1.1 GiB).
-
-### 0.1.21
-
-- Every export size keeps the look of the 1200-pixel render. Images narrower than 1200 pixels used to get thicker, blacker outlines; they are now rendered at 1200 pixels and shrunk by area averaging. The live preview uses the same path, so it matches the exported PNG.
-- `illustrate save` is synchronous and works without the graphical interface (`ChimeraX --nogui`). New keywords: `width`, `height`, `preferAtomColors`.
-- The size fields show their valid range, and out-of-range entries are clamped with a status message instead of being silently refused.
-- Fixed export results (success or failure) being lost when the preview re-rendered during an export; exports no longer block the live preview.
-- Color presets no longer store hidden state on the session. The extra scene changes (hide hydrogens, white background, soft lighting, silhouettes) can be turned off with **Also adjust scene**, and **Keep Atom Colors** is an explicit option.
-- NumPy-only renderer (the pure-Python implementation is kept as a test oracle), vectorized sphere tables, user-visible strings moved to `i18n.py`, 71 unit tests, and a GitHub Actions workflow (pyflakes and tests).
-
-### 0.1.20
-
-- Improved the nucleic-acid color contrast of the **Nucleic Base Contrast** preset.
-- Fixed the installation instructions.
-
-### 0.1.19
-
-- First public release.
-
 ## License
 
 This project is released under the Apache License 2.0. The non-photorealistic rendering style and algorithm reference are based on [ccsb-scripps/Illustrate](https://github.com/ccsb-scripps/Illustrate).
