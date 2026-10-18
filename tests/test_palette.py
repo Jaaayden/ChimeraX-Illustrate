@@ -343,5 +343,89 @@ class ComponentColorTests(unittest.TestCase):
         self.assertTrue(any("ligand AAA" in a for a in assignments))
 
 
+class PlanTests(unittest.TestCase):
+    """The color plan is independent of how it is applied."""
+
+    def test_command_path_logs_the_plan_it_describes(self):
+        from src.palette import _describe_plans, _plan_colors
+
+        structures = [
+            FakeStructure("1", residues_of("A", "ALA", "AAA") + residues_of("B", "ALA", "CLR")),
+            FakeStructure("2", residues_of("A", "ALA", "AAA")),
+        ]
+        for preset in available_palette_presets():
+            with self.subTest(preset=preset):
+                session = FakeSession(structures)
+                logged = apply_chain_palette(
+                    session,
+                    command_runner=lambda *_args: None,
+                    structure_type=FakeStructure,
+                    preset=preset,
+                    adjust_scene=False,
+                )
+                plans = _plan_colors(structures, preset, None)
+                self.assertEqual(list(logged), _describe_plans(plans))
+
+    def test_chain_colors_follow_the_palette_across_structures(self):
+        from src.palette import _plan_colors
+
+        structures = [
+            FakeStructure("1", residues_of("A", "ALA") + residues_of("B", "ALA")),
+            FakeStructure("2", residues_of("A", "ALA")),
+        ]
+        plans = _plan_colors(structures, "cool_warm", None)
+        colors = [color for plan in plans for _chain, color in plan.chains]
+        self.assertEqual(colors, list(CHAIN_PALETTES["cool_warm"][:3]))
+
+    def test_only_the_nucleic_preset_marks_nucleobase_chains(self):
+        from src.palette import _plan_colors
+
+        structure = FakeStructure("1", residues_of("A", "ALA") + residues_of("B", "DA", "DC"))
+        self.assertEqual(_plan_colors([structure], "classic", None)[0].nucleic_chains, set())
+        self.assertEqual(_plan_colors([structure], "ribosome", None)[0].nucleic_chains, {"B"})
+
+
+class VectorizedColorTests(unittest.TestCase):
+    """The array path must shade elements exactly like the ``color`` commands."""
+
+    def test_element_shading_matches_the_command_path_colors(self):
+        import numpy as np
+        from src import palette
+
+        for base in ("#70A5F5", "#E63946", "#B08968"):
+            rgb = palette._hex_to_u8(base)
+            elements = np.array([6, 7, 8, 16, 15, 1, 26, 12, 0], dtype=np.int64)
+            result = palette._atom_colors_from_bases(
+                np.tile(np.array(rgb, dtype=np.uint8), (len(elements), 1)), elements
+            )
+            variants = palette._element_colors(base)
+            for row, symbol in enumerate(("C", "N", "O", "S", "P", "H")):
+                self.assertEqual(tuple(result[row]), palette._hex_to_u8(variants[symbol]), symbol)
+            # Metals and unknown elements keep the base color.
+            for row in (6, 7, 8):
+                self.assertEqual(tuple(result[row]), rgb)
+
+    def test_each_distinct_base_color_is_shaded_independently(self):
+        import numpy as np
+        from src import palette
+
+        bases = np.array([palette._hex_to_u8("#70A5F5"), palette._hex_to_u8("#F78C90")], dtype=np.uint8)
+        result = palette._atom_colors_from_bases(bases, np.array([8, 8]))
+        self.assertNotEqual(tuple(result[0]), tuple(result[1]))
+        self.assertEqual(
+            tuple(result[1]),
+            palette._hex_to_u8(palette._element_colors("#F78C90")["O"]),
+        )
+
+    def test_empty_selection_is_fine(self):
+        import numpy as np
+        from src import palette
+
+        result = palette._atom_colors_from_bases(
+            np.empty((0, 3), dtype=np.uint8), np.empty(0, dtype=np.int64)
+        )
+        self.assertEqual(result.shape, (0, 3))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -278,100 +278,6 @@ def _nucleic_base_atom_names(residues):
     return tuple(sorted(names))
 
 
-def _apply_nucleic_base_palette(session, structures, command_runner,
-                                 residue_type):
-    """Color every polymer by chain and give nucleobases a pale contrast."""
-
-    palette = CHAIN_PALETTES["classic"]
-    palette_index = 0
-    assignments = []
-    for structure in structures:
-        model_spec = "#" + structure.id_string
-        chain_ids = _polymer_chain_ids(structure, residue_type)
-        known_colors = KNOWN_CHAIN_SETS.get(frozenset(chain_ids), {})
-        if known_colors:
-            palette_index += len(known_colors)
-        residues_by_chain = {chain_id: [] for chain_id in chain_ids}
-        for residue in structure.residues:
-            residues_by_chain.setdefault(residue.chain_id, []).append(residue)
-        for chain_id in chain_ids:
-            if chain_id in known_colors:
-                chain_color = known_colors[chain_id]
-            else:
-                chain_color = palette[palette_index % len(palette)]
-                palette_index += 1
-            chain_spec = _chain_spec(structure, chain_id)
-            _color_selection(session, command_runner, chain_spec, chain_color)
-
-            nucleic_residues = [
-                residue for residue in residues_by_chain.get(chain_id, ())
-                if _residue_category(residue, residue_type) == "nucleic"
-            ]
-            if nucleic_residues:
-                residue_names = sorted({
-                    str(getattr(residue, "name", "")).strip()
-                    for residue in nucleic_residues
-                    if str(getattr(residue, "name", "")).strip()
-                })
-                atom_names = _nucleic_base_atom_names(nucleic_residues)
-                if residue_names and atom_names:
-                    base_spec = "({} & :{} & @{})".format(
-                        chain_spec,
-                        ",".join(residue_names),
-                        ",".join(atom_names),
-                    )
-                    command_runner(
-                        session,
-                        "color {} {} target as halfbond true".format(
-                            base_spec, NUCLEIC_BASE_COLOR
-                        ),
-                    )
-                    shown_id = chain_id if chain_id else "<blank>"
-                    assignments.append(
-                        "{} /{} backbone = {}; bases = {}".format(
-                            model_spec, shown_id, chain_color,
-                            NUCLEIC_BASE_COLOR,
-                        )
-                    )
-                    continue
-
-            shown_id = chain_id if chain_id else "<blank>"
-            assignments.append("{} /{} = {}".format(
-                model_spec, shown_id, chain_color
-            ))
-    return assignments
-
-
-def _apply_chain_colors(session, structures, command_runner, preset,
-                        residue_type=None):
-    palette = CHAIN_PALETTES[preset]
-    palette_index = 0
-    assignments = []
-    for structure in structures:
-        model_spec = "#" + structure.id_string
-        chain_ids = _polymer_chain_ids(structure, residue_type)
-        known_colors = (
-            KNOWN_CHAIN_SETS.get(frozenset(chain_ids), {})
-            if preset == "classic"
-            else {}
-        )
-        if known_colors:
-            palette_index += len(known_colors)
-        for chain_id in chain_ids:
-            if chain_id in known_colors:
-                base = known_colors[chain_id]
-            else:
-                base = palette[palette_index % len(palette)]
-                palette_index += 1
-            spec = _chain_spec(structure, chain_id)
-            _color_selection(session, command_runner, spec, base)
-            shown_id = chain_id if chain_id else "<blank>"
-            assignments.append("{} /{} = {}".format(
-                model_spec, shown_id, base
-            ))
-    return assignments
-
-
 def _collect_components(structures, residue_type):
     """Group the non-polymer residues of each structure into colored components.
 
@@ -411,20 +317,220 @@ def _collect_components(structures, residue_type):
     return result
 
 
-def _apply_component_colors(session, structures, command_runner, residue_type):
-    """Color ligands, lipids and sugars (not water or ions) by molecule type."""
+class _StructurePlan:
+    """What to color in one structure (independent of how it is applied)."""
 
-    assignments = []
-    collected = _collect_components(structures, residue_type)
-    for structure, components in zip(structures, collected):
-        model_spec = "#" + structure.id_string
-        for label, names, color in components:
-            spec = _residue_names_spec(structure, names)
-            _color_selection(session, command_runner, spec, color)
-            assignments.append("{} {} ({}) = {}".format(
-                model_spec, label, ",".join(names), color
-            ))
-    return assignments
+    def __init__(self, structure, chains, nucleic_chains, components):
+        self.structure = structure
+        self.chains = chains                  # [(chain_id, hex color)]
+        self.nucleic_chains = nucleic_chains  # chain ids that get pale nucleobases
+        self.components = components          # [(label, residue names, hex color)]
+
+
+def _plan_colors(structures, preset, residue_type):
+    """Decide every color once: chain colors, nucleobases, ligands/lipids/sugars."""
+
+    palette = CHAIN_PALETTES["classic" if preset == "ribosome" else preset]
+    use_known_sets = preset in ("classic", "ribosome")
+    palette_index = 0
+    plans = []
+    for structure, components in zip(
+            structures, _collect_components(structures, residue_type)):
+        chain_ids = _polymer_chain_ids(structure, residue_type)
+        known = (
+            KNOWN_CHAIN_SETS.get(frozenset(chain_ids), {}) if use_known_sets else {}
+        )
+        if known:
+            palette_index += len(known)
+        nucleic_chains = set()
+        if preset == "ribosome":
+            for residue in structure.residues:
+                if _residue_category(residue, residue_type) == "nucleic":
+                    nucleic_chains.add(residue.chain_id)
+        chains = []
+        for chain_id in chain_ids:
+            if chain_id in known:
+                color = known[chain_id]
+            else:
+                color = palette[palette_index % len(palette)]
+                palette_index += 1
+            chains.append((chain_id, color))
+        plans.append(_StructurePlan(structure, chains, nucleic_chains, components))
+    return plans
+
+
+def _describe_plans(plans):
+    """Human-readable lines for the log (one per chain, then per component)."""
+
+    lines = []
+    for plan in plans:
+        model_spec = "#" + plan.structure.id_string
+        for chain_id, color in plan.chains:
+            shown_id = chain_id if chain_id else "<blank>"
+            if chain_id in plan.nucleic_chains:
+                lines.append("{} /{} backbone = {}; bases = {}".format(
+                    model_spec, shown_id, color, NUCLEIC_BASE_COLOR))
+            else:
+                lines.append("{} /{} = {}".format(model_spec, shown_id, color))
+    for plan in plans:
+        model_spec = "#" + plan.structure.id_string
+        for label, names, color in plan.components:
+            lines.append("{} {} ({}) = {}".format(
+                model_spec, label, ",".join(names), color))
+    return lines
+
+
+def _apply_plans_with_commands(session, command_runner, plans, residue_type):
+    """Apply a plan with ``color`` commands (slow on big structures)."""
+
+    for plan in plans:
+        structure = plan.structure
+        residues_by_chain = {}
+        if plan.nucleic_chains:
+            for residue in structure.residues:
+                residues_by_chain.setdefault(residue.chain_id, []).append(residue)
+        for chain_id, color in plan.chains:
+            chain_spec = _chain_spec(structure, chain_id)
+            _color_selection(session, command_runner, chain_spec, color)
+            if chain_id not in plan.nucleic_chains:
+                continue
+            nucleic = [
+                residue for residue in residues_by_chain.get(chain_id, ())
+                if _residue_category(residue, residue_type) == "nucleic"
+            ]
+            residue_names = sorted({
+                str(getattr(residue, "name", "")).strip() for residue in nucleic
+                if str(getattr(residue, "name", "")).strip()
+            })
+            atom_names = _nucleic_base_atom_names(nucleic)
+            if residue_names and atom_names:
+                command_runner(
+                    session,
+                    "color ({} & :{} & @{}) {} target as halfbond true".format(
+                        chain_spec, ",".join(residue_names), ",".join(atom_names),
+                        NUCLEIC_BASE_COLOR,
+                    ),
+                )
+    for plan in plans:
+        for _label, names, color in plan.components:
+            _color_selection(
+                session, command_runner,
+                _residue_names_spec(plan.structure, names), color,
+            )
+
+
+# Elements that get their own shade of the base color (see _element_colors).
+_SHADED_ELEMENTS = ("C", "N", "O", "S", "P", "H")
+_SHADED_NUMBERS = (6, 7, 8, 16, 15, 1)
+
+
+def _hex_to_u8(value):
+    return tuple(int(round(channel * 255.0)) for channel in _hex_to_rgb(value))
+
+
+def _atom_colors_from_bases(base_rgb, element_numbers):
+    """Per-atom RGB: the base color, shaded by element (as ``_color_selection`` does)."""
+
+    import numpy as np
+
+    result = base_rgb.copy()
+    if not len(base_rgb):
+        return result
+    unique, inverse = np.unique(base_rgb, axis=0, return_inverse=True)
+    inverse = np.asarray(inverse).reshape(-1)
+    table = np.empty((len(unique), len(_SHADED_ELEMENTS), 3), dtype=np.uint8)
+    for row, rgb in enumerate(unique):
+        variants = _element_colors(_rgb_to_hex([channel / 255.0 for channel in rgb]))
+        for column, symbol in enumerate(_SHADED_ELEMENTS):
+            table[row, column] = _hex_to_u8(variants[symbol])
+    lookup = np.full(256, -1, dtype=np.int16)
+    for column, number in enumerate(_SHADED_NUMBERS):
+        lookup[number] = column
+    column = lookup[np.clip(element_numbers, 0, 255)]
+    shaded = column >= 0
+    result[shaded] = table[inverse[shaded], column[shaded]]
+    return result
+
+
+def _apply_plans_with_api(session, plans, residue_type):
+    """Apply a plan by assigning color arrays directly (fast).
+
+    Produces the same colors as :func:`_apply_plans_with_commands`, but one
+    vectorized assignment per structure instead of hundreds of ``color``
+    commands, each of which has to evaluate an atom spec over every atom.
+    """
+
+    import numpy as np
+    from chimerax.atomic import MolecularSurface
+
+    for plan in plans:
+        structure = plan.structure
+        atoms, residues = structure.atoms, structure.residues
+        residue_order = np.argsort(residues.pointers)
+        atom_residue = residue_order[np.searchsorted(
+            residues.pointers[residue_order], atoms.residues.pointers)]
+        chain_ids, names = residues.chain_ids, residues.names
+        types = residues.polymer_types
+        is_nucleic = types == residue_type.PT_NUCLEIC
+        is_polymer = is_nucleic | (types == residue_type.PT_AMINO)
+
+        residue_rgb = np.zeros((len(residues), 3), dtype=np.uint8)
+        residue_set = np.zeros(len(residues), dtype=bool)
+        for chain_id, color in plan.chains:
+            mask = is_polymer & (chain_ids == chain_id)
+            residue_rgb[mask] = _hex_to_u8(color)
+            residue_set |= mask
+        for _label, component_names, color in plan.components:
+            mask = np.isin(names, list(component_names))
+            residue_rgb[mask] = _hex_to_u8(color)
+            residue_set |= mask
+
+        atom_set = residue_set[atom_residue]
+        base_rgb = residue_rgb[atom_residue]
+        element_numbers = atoms.element_numbers
+        pale = np.zeros(len(atoms), dtype=bool)
+        if plan.nucleic_chains:
+            atom_names = np.char.upper(np.asarray(atoms.names).astype(str))
+            backbone = np.isin(atom_names, list(_NUCLEIC_BACKBONE_ATOMS))
+            pale = is_nucleic[atom_residue] & atom_set & (element_numbers != 1) & ~backbone
+
+        selected = np.flatnonzero(atom_set)
+        atom_rgb = _atom_colors_from_bases(base_rgb[selected], element_numbers[selected])
+        colors = atoms.colors.copy()
+        colors[selected, :3] = atom_rgb
+        colors[selected, 3] = 255
+        colors[pale, :3] = _hex_to_u8(NUCLEIC_BASE_COLOR)
+        atoms.colors = colors
+
+        ribbon = residues.ribbon_colors.copy()
+        ribbon[residue_set, :3] = residue_rgb[residue_set]
+        ribbon[residue_set, 3] = 255
+        residues.ribbon_colors = ribbon
+
+        bonds = structure.bonds
+        if len(bonds) and not bonds.halfbonds.all():
+            bonds.halfbonds = True
+
+        # Molecular surfaces take the chain/component color (nucleobases pale).
+        surface_rgb = base_rgb.copy()
+        surface_rgb[pale] = _hex_to_u8(NUCLEIC_BASE_COLOR)
+        atom_order = np.argsort(atoms.pointers)
+        for surface in structure.child_models():
+            if not isinstance(surface, MolecularSurface):
+                continue
+            surface_atoms = surface.atoms
+            index = atom_order[np.searchsorted(
+                atoms.pointers[atom_order], surface_atoms.pointers)]
+            keep = np.flatnonzero(atom_set[index])
+            if not len(keep):
+                continue
+            # One call per distinct color, as the ``color`` command does.
+            unique, inverse = np.unique(
+                surface_rgb[index[keep]], axis=0, return_inverse=True)
+            inverse = np.asarray(inverse).reshape(-1)
+            for number, rgb in enumerate(unique):
+                members = surface_atoms[keep[inverse == number]]
+                surface.color_atom_patches(members, color=np.append(rgb, 255).astype(np.uint8))
 
 
 def preset_prefers_atom_colors(preset):
@@ -453,32 +559,32 @@ def apply_chain_palette(session, command_runner=None, structure_type=None,
         from chimerax.atomic import AtomicStructure, Residue
         structure_type = AtomicStructure
         residue_type = Residue
-    if command_runner is None:
+    # Without an explicit runner (the normal case) colors are assigned through
+    # the Python API, which is much faster than running ``color`` commands.
+    use_api = command_runner is None
+    if use_api:
         from chimerax.core.commands import run
-        command_runner = run
+        scene_runner = run
+    else:
+        scene_runner = command_runner
 
     structures = session.models.list(type=structure_type)
     if not structures:
         session.logger.warning("Illustrate palette: no atomic model is open.")
         return ()
 
-    if preset == "ribosome":
-        assignments = _apply_nucleic_base_palette(
-            session, structures, command_runner, residue_type
-        )
+    plans = _plan_colors(structures, preset, residue_type)
+    assignments = _describe_plans(plans)
+    if use_api:
+        _apply_plans_with_api(session, plans, residue_type)
     else:
-        assignments = _apply_chain_colors(
-            session, structures, command_runner, preset, residue_type
-        )
-    assignments = list(assignments) + _apply_component_colors(
-        session, structures, command_runner, residue_type
-    )
+        _apply_plans_with_commands(session, command_runner, plans, residue_type)
 
     if adjust_scene:
-        command_runner(session, "hide H atoms")
-        command_runner(session, "set bgColor white")
-        command_runner(session, "lighting soft")
-        command_runner(session, "graphics silhouettes true")
+        scene_runner(session, "hide H atoms")
+        scene_runner(session, "set bgColor white")
+        scene_runner(session, "lighting soft")
+        scene_runner(session, "graphics silhouettes true")
 
     session.logger.info(
         "Illustrate palette '{}' applied to {} component(s):\n{}".format(

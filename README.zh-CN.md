@@ -33,7 +33,7 @@
 从 [Releases 页面](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest)下载最新的 `.whl` 文件，然后在 ChimeraX 命令行中执行：
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.28-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.29-py3-none-any.whl
 ```
 
 重启 ChimeraX，再输入 `illustrate`。需要 ChimeraX 1.10 或更高版本。

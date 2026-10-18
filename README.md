@@ -33,7 +33,7 @@ Made with this plugin from [RCSB PDB](https://www.rcsb.org/) structures (click a
 Download the latest `.whl` from the [Releases page](https://github.com/Jaaayden/ChimeraX-Illustrate/releases/latest), then run in ChimeraX:
 
 ```text
-toolshed install ~/Downloads/chimerax_illustrate-0.1.28-py3-none-any.whl
+toolshed install ~/Downloads/chimerax_illustrate-0.1.29-py3-none-any.whl
 ```
 
 Restart ChimeraX and run `illustrate`. Requires ChimeraX 1.10 or later.
